@@ -34,6 +34,8 @@ import {
   OrderAttendeeInput,
 } from "@/lib/types";
 import BreshPosterArt from "@/components/BreshPosterArt";
+import EventPriceText from "@/components/EventPriceText";
+import { fillEventTemplate, getEventText } from "@/lib/eventTexts";
 
 export default function EventDetailPage() {
   const params = useParams<{ slug: string }>();
@@ -200,11 +202,17 @@ export default function EventDetailPage() {
             </div>
 
             <div className="mb-8">
-              <h1 className="text-5xl font-medium mt-4 mb-2">MAS30</h1>
+              {getEventText(event, "headerLabel") && (
+                <h1 className="text-5xl font-medium mt-4 mb-2">
+                  {getEventText(event, "headerLabel")}
+                </h1>
+              )}
               <h2 className="text-4xl md:text-5xl font-medium mb-2">
                 {event.title}
               </h2>
-              <p className="text-white/80 text-sm mt-2">{event.subtitle}</p>
+              {event.subtitle?.trim() && (
+                <p className="text-white/80 text-sm mt-2">{event.subtitle}</p>
+              )}
             </div>
 
             <div className="w-full">
@@ -229,14 +237,17 @@ export default function EventDetailPage() {
                     href={`https://wa.me/${(
                       event.organizerWhatsapp || bank.whatsappSupport
                     ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                      `¡Hola MAS30! Quiero hacer una consulta / comprar entradas para el evento *${event.title}* (${event.dateLabel}).`
+                      fillEventTemplate(
+                        getEventText(event, "whatsappMessage"),
+                        event
+                      )
                     )}`}
                     target="_blank"
                     rel="noreferrer"
                     className="flex-1 min-w-[200px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] text-white text-xs font-medium border border-white/15 transition-colors"
                   >
                     <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
-                    WhatsApp Organizador (Consultas & Tickets)
+                    {getEventText(event, "whatsappLabel")}
                   </a>
 
                   <button
@@ -277,7 +288,7 @@ export default function EventDetailPage() {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
                   >
                     <Instagram className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                    Instagram Oficial
+                    {getEventText(event, "instagramLabel")}
                   </a>
                   {event.tiktokUrl && (
                     <a
@@ -287,7 +298,7 @@ export default function EventDetailPage() {
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                      Red Social / Video
+                      {getEventText(event, "tiktokLabel")}
                     </a>
                   )}
                 </div>
@@ -298,14 +309,31 @@ export default function EventDetailPage() {
                 <div>
                   <h3 className="text-2xl font-normal mb-4">Información</h3>
                   <div className="space-y-3 text-sm text-white/85">
-                    <div className="flex items-start gap-3">
-                      <Info className="w-4 h-4 mt-1 shrink-0" />
-                      <p>{event.ageRestriction}</p>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Info className="w-4 h-4 mt-1 shrink-0" />
-                      <p>{event.description}</p>
-                    </div>
+                    {event.ageRestriction?.trim() && (
+                      <div className="flex items-start gap-3">
+                        <Info className="w-4 h-4 mt-1 shrink-0" />
+                        <p className="whitespace-pre-line">
+                          {event.ageRestriction}
+                        </p>
+                      </div>
+                    )}
+                    {event.description?.trim() && (
+                      <div className="flex items-start gap-3">
+                        <Info className="w-4 h-4 mt-1 shrink-0" />
+                        <p className="whitespace-pre-line">{event.description}</p>
+                      </div>
+                    )}
+                    {getEventText(event, "ticketInfoText").trim() && (
+                      <div className="flex items-start gap-3">
+                        <QrCode className="w-4 h-4 mt-1 shrink-0" />
+                        <p className="whitespace-pre-line">
+                          <EventPriceText
+                            event={event}
+                            text={getEventText(event, "ticketInfoText")}
+                          />
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -314,7 +342,9 @@ export default function EventDetailPage() {
                   <div className="flex items-start gap-3 text-sm text-white/85 mb-4">
                     <MapPin className="w-4 h-4 mt-1 shrink-0" />
                     <p>
-                      {event.venueAddress}, {event.venueCity}
+                      {[event.venueAddress, event.venueCity]
+                        .filter((s) => s && s.trim())
+                        .join(", ")}
                     </p>
                   </div>
                   <div className="rounded-t-lg bg-[#1A1A1A] flex items-center gap-3 p-3">
@@ -369,9 +399,11 @@ export default function EventDetailPage() {
                   <h2 className="text-2xl font-normal text-white">
                     Tickets & Accesos QR
                   </h2>
-                  <p className="text-xs text-[#8a8a8a] mt-1">
-                    Aboná por transferencia bancaria · Recibís 1 código QR individual por cada entrada
-                  </p>
+                  {getEventText(event, "checkoutNote") && (
+                    <p className="text-xs text-[#8a8a8a] mt-1">
+                      {getEventText(event, "checkoutNote")}
+                    </p>
+                  )}
                 </div>
                 <QrCode className="w-7 h-7 text-[#ffb5d7]" />
               </div>

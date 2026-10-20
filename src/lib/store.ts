@@ -13,8 +13,8 @@ import { getSupabaseClient } from "./supabase";
 
 const STORAGE_KEYS = {
   EVENTS: "mas30_events_v3",
-  ORDERS: "mas30_orders_v3",
-  TICKETS: "mas30_tickets_v3",
+  ORDERS: "mas30_orders_v4",
+  TICKETS: "mas30_tickets_v4",
   INQUIRIES: "mas30_inquiries_v3",
   SETTINGS: "mas30_settings_v3",
   ADMIN_USERS: "mas30_admin_users_v1",
@@ -78,6 +78,8 @@ const LEGACY_KEYS = [
   "mas30_orders_v2",
   "mas30_tickets_v2",
   "mas30_inquiries_v2",
+  "mas30_orders_v3",
+  "mas30_tickets_v3",
 ];
 
 function cleanLegacyStorage() {
@@ -98,6 +100,10 @@ export const INITIAL_SETTINGS: BankSettings = {
   whatsappSupport: "+5491155553030",
   instagramHandle: "@mas30.eventos",
   adminPin: "3030",
+  shareTitle: "MAS30 | Eventos",
+  shareDescription:
+    "Eventos oficiales de MAS30. La fiesta más linda para mayores de 30 años. Entradas con acceso QR individual.",
+  shareImageUrl: "",
 };
 
 export const INITIAL_EVENTS: EventItem[] = [
@@ -148,7 +154,7 @@ export const INITIAL_EVENTS: EventItem[] = [
           "Acceso oficial a la fiesta de Halloween (Sábado 31/10). Incluye 1 código QR individual.",
         price: 10000,
         stock: 400,
-        sold: 145,
+        sold: 0,
         includes: [
           "Acceso General +30",
           "Participación en premios Halloween",
@@ -206,7 +212,7 @@ export const INITIAL_EVENTS: EventItem[] = [
           "Acceso oficial para el Domingo 06/12. Incluye 1 código QR individual.",
         price: 10000,
         stock: 450,
-        sold: 110,
+        sold: 0,
         includes: [
           "Acceso General +30",
           "Sector Patio Criollo & Pista Tropical",
@@ -263,7 +269,7 @@ export const INITIAL_EVENTS: EventItem[] = [
           "Acceso oficial a la fiesta de fin de año (Sábado 26/12). Incluye 1 código QR individual.",
         price: 10000,
         stock: 500,
-        sold: 180,
+        sold: 0,
         includes: [
           "Acceso General +30",
           "Copa de Brindis de Fin de Año",
@@ -321,7 +327,7 @@ export const INITIAL_EVENTS: EventItem[] = [
           "Acceso oficial para el Sábado 09/01 (Reggaeton Clásico & Modo Clap!). Incluye 1 código QR individual.",
         price: 10000,
         stock: 450,
-        sold: 95,
+        sold: 0,
         includes: [
           "Acceso General +30",
           "Abanico Oficial Fiesta Calor (Primeros 150)",
@@ -334,146 +340,9 @@ export const INITIAL_EVENTS: EventItem[] = [
   },
 ];
 
-export const INITIAL_ORDERS: OrderItem[] = [
-  {
-    id: "ord-demo-1",
-    orderCode: "MAS30-8492",
-    eventId: "evt-halloween-3110",
-    eventSlug: "halloween-mas30-31-10",
-    eventTitle: "HALLOWEEN",
-    eventDateLabel: "sáb. 31 oct.",
-    eventTime: "23:30 a 06:00 hs",
-    eventVenue: "MAS30 CLUB · HALLOWEEN EDITION",
-    buyerName: "Martín Echeverría",
-    buyerDni: "26.841.920",
-    buyerEmail: "martin.echeverria@email.com",
-    buyerPhone: "+5491144889900",
-    tierId: "tier-halloween-general",
-    tierName: "Entrada General · Halloween MAS30",
-    unitPrice: 10000,
-    quantity: 2,
-    totalAmount: 20000,
-    transferSender: "Martín Echeverría (Banco Galicia)",
-    transferReference: "OP-99482103",
-    notes: "Vamos disfrazados con mi pareja, ya transferimos los $20.000.",
-    attendees: [
-      { name: "Martín Echeverría", dni: "26.841.920" },
-      { name: "Carolina Gómez", dni: "28.110.452" },
-    ],
-    status: "APROBADA",
-    approvedAt: "2026-10-19T15:30:00Z",
-    approvedByUsername: "admin",
-    approvedByName: "Administrador General MAS30",
-    issueType: "TRANSFERENCIA_WEB",
-    createdAt: "2026-10-19T14:15:00Z",
-  },
-  {
-    id: "ord-demo-2",
-    orderCode: "MAS30-9104",
-    eventId: "evt-pena-mastreinta-0612",
-    eventSlug: "la-pena-mastreinta-06-12",
-    eventTitle: "La Peña MASTREINTA!",
-    eventDateLabel: "dom. 06 dic.",
-    eventTime: "19:00 a 03:30 hs",
-    eventVenue: "ESPACIO AIRE LIBRE · MASTREINTA",
-    buyerName: "Valeria Soria",
-    buyerDni: "25.490.112",
-    buyerEmail: "valesoria80@email.com",
-    buyerPhone: "+5491167213344",
-    tierId: "tier-pena-general",
-    tierName: "Entrada General · La Peña MASTREINTA!",
-    unitPrice: 10000,
-    quantity: 3,
-    totalAmount: 30000,
-    transferSender: "Valeria Soria (Mercado Pago)",
-    transferReference: "MP-773190442",
-    notes: "Festejo con mis amigas en La Peña. Transferí $30.000.",
-    attendees: [
-      { name: "Valeria Soria", dni: "25.490.112" },
-      { name: "Paula Benítez", dni: "26.102.884" },
-      { name: "Luciana Rossi", dni: "27.004.319" },
-    ],
-    status: "PENDIENTE",
-    createdAt: "2026-10-19T17:40:00Z",
-  },
-  {
-    id: "ord-demo-3",
-    orderCode: "MAS30-9255",
-    eventId: "evt-fiesta-calor-0901",
-    eventSlug: "fiesta-calor-reggaeton-clasico-modo-clap",
-    eventTitle: "FIESTA CALOR",
-    eventDateLabel: "sáb. 09 ene.",
-    eventTime: "23:30 a 06:00 hs",
-    eventVenue: "CLUB CALOR · MAS30 SUMMER",
-    buyerName: "Hernán Lombardi",
-    buyerDni: "24.331.008",
-    buyerEmail: "hlombardi@email.com",
-    buyerPhone: "+5491150921188",
-    tierId: "tier-calor-general",
-    tierName: "Entrada General · FIESTA CALOR",
-    unitPrice: 10000,
-    quantity: 2,
-    totalAmount: 20000,
-    transferSender: "Hernán Lombardi (Santander)",
-    transferReference: "TR-00481920",
-    notes: "¡No nos perdemos el bloque Modo Clap!",
-    attendees: [
-      { name: "Hernán Lombardi", dni: "24.331.008" },
-      { name: "Julieta Méndez", dni: "27.889.102" },
-    ],
-    status: "PENDIENTE",
-    createdAt: "2026-10-19T18:10:00Z",
-  },
-];
+export const INITIAL_ORDERS: OrderItem[] = [];
 
-export const INITIAL_TICKETS: TicketQR[] = [
-  {
-    id: "tkt-demo-1",
-    qrCode: "MAS30|TKT|MAS30-8492|1|A9F3C2",
-    shortCode: "M30-8492-01",
-    orderId: "ord-demo-1",
-    orderCode: "MAS30-8492",
-    eventId: "evt-halloween-3110",
-    eventTitle: "HALLOWEEN",
-    eventDateLabel: "sáb. 31 oct.",
-    eventTime: "23:30 a 06:00 hs",
-    eventVenue: "MAS30 CLUB · HALLOWEEN EDITION",
-    tierName: "Entrada General · Halloween MAS30",
-    holderName: "Martín Echeverría",
-    holderDni: "26.841.920",
-    buyerPhone: "+5491144889900",
-    ticketNumber: 1,
-    totalInOrder: 2,
-    unitPrice: 10000,
-    generatedByUsername: "admin",
-    generatedByName: "Administrador General MAS30",
-    status: "VALIDO",
-    createdAt: "2026-10-19T15:30:00Z",
-  },
-  {
-    id: "tkt-demo-2",
-    qrCode: "MAS30|TKT|MAS30-8492|2|B7E4D1",
-    shortCode: "M30-8492-02",
-    orderId: "ord-demo-1",
-    orderCode: "MAS30-8492",
-    eventId: "evt-halloween-3110",
-    eventTitle: "HALLOWEEN",
-    eventDateLabel: "sáb. 31 oct.",
-    eventTime: "23:30 a 06:00 hs",
-    eventVenue: "MAS30 CLUB · HALLOWEEN EDITION",
-    tierName: "Entrada General · Halloween MAS30",
-    holderName: "Carolina Gómez",
-    holderDni: "28.110.452",
-    buyerPhone: "+5491144889900",
-    ticketNumber: 2,
-    totalInOrder: 2,
-    unitPrice: 10000,
-    generatedByUsername: "admin",
-    generatedByName: "Administrador General MAS30",
-    status: "VALIDO",
-    createdAt: "2026-10-19T15:30:00Z",
-  },
-];
+export const INITIAL_TICKETS: TicketQR[] = [];
 
 export const INITIAL_INQUIRIES: InquiryItem[] = [
   {
@@ -560,6 +429,28 @@ export async function pushToCloudStore(
   }
 }
 
+const DEMO_ORDER_IDS = new Set(["ord-demo-1", "ord-demo-2", "ord-demo-3"]);
+const DEMO_ORDER_CODES = new Set(["MAS30-8492", "MAS30-9104", "MAS30-9255"]);
+const DEMO_TICKET_IDS = new Set(["tkt-demo-1", "tkt-demo-2"]);
+
+function filterOutDemoOrders(orders: OrderItem[]): OrderItem[] {
+  if (!Array.isArray(orders)) return [];
+  return orders.filter(
+    (o) => o && !DEMO_ORDER_IDS.has(o.id) && !DEMO_ORDER_CODES.has(o.orderCode)
+  );
+}
+
+function filterOutDemoTickets(tickets: TicketQR[]): TicketQR[] {
+  if (!Array.isArray(tickets)) return [];
+  return tickets.filter(
+    (t) =>
+      t &&
+      !DEMO_TICKET_IDS.has(t.id) &&
+      !DEMO_ORDER_IDS.has(t.orderId) &&
+      !DEMO_ORDER_CODES.has(t.orderCode)
+  );
+}
+
 export async function syncFromCloudStore(): Promise<void> {
   if (typeof window === "undefined" || isSavingToCloud) return;
   try {
@@ -593,8 +484,14 @@ export async function syncFromCloudStore(): Promise<void> {
     };
 
     applyKey(STORAGE_KEYS.EVENTS, st.events);
-    applyKey(STORAGE_KEYS.ORDERS, st.orders);
-    applyKey(STORAGE_KEYS.TICKETS, st.tickets);
+    applyKey(
+      STORAGE_KEYS.ORDERS,
+      Array.isArray(st.orders) ? filterOutDemoOrders(st.orders) : st.orders
+    );
+    applyKey(
+      STORAGE_KEYS.TICKETS,
+      Array.isArray(st.tickets) ? filterOutDemoTickets(st.tickets) : st.tickets
+    );
     applyKey(STORAGE_KEYS.INQUIRIES, st.inquiries);
     applyKey(STORAGE_KEYS.SETTINGS, st.settings);
     applyKey(STORAGE_KEYS.ADMIN_USERS, st.adminUsers);
@@ -758,7 +655,7 @@ export function getOrders(): OrderItem[] {
     return INITIAL_ORDERS;
   }
   try {
-    return JSON.parse(raw);
+    return filterOutDemoOrders(JSON.parse(raw));
   } catch {
     return INITIAL_ORDERS;
   }
@@ -773,9 +670,10 @@ export function getOrderByCode(orderCode: string): OrderItem | undefined {
 
 export function saveOrders(orders: OrderItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+  const cleaned = filterOutDemoOrders(orders);
+  localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(cleaned));
   notifyStoreUpdate();
-  void pushToCloudStore({ orders });
+  void pushToCloudStore({ orders: cleaned });
 }
 
 export function getTickets(): TicketQR[] {
@@ -787,7 +685,7 @@ export function getTickets(): TicketQR[] {
     return INITIAL_TICKETS;
   }
   try {
-    return JSON.parse(raw);
+    return filterOutDemoTickets(JSON.parse(raw));
   } catch {
     return INITIAL_TICKETS;
   }
@@ -800,9 +698,10 @@ export function getTicketsByOrderCode(orderCode: string): TicketQR[] {
 
 export function saveTickets(tickets: TicketQR[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(tickets));
+  const cleaned = filterOutDemoTickets(tickets);
+  localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(cleaned));
   notifyStoreUpdate();
-  void pushToCloudStore({ tickets });
+  void pushToCloudStore({ tickets: cleaned });
 }
 
 export async function createTransferOrder(input: {
@@ -1138,6 +1037,32 @@ export async function rejectOrder(orderId: string): Promise<void> {
   saveOrders(updated);
 }
 
+export async function deleteOrder(orderId: string): Promise<void> {
+  const orders = getOrders();
+  const target = orders.find((o) => o.id === orderId || o.orderCode === orderId);
+  const updatedOrders = orders.filter(
+    (o) => o.id !== orderId && o.orderCode !== orderId
+  );
+  saveOrders(updatedOrders);
+
+  if (target) {
+    const updatedTickets = getTickets().filter(
+      (t) => t.orderId !== target.id && t.orderCode !== target.orderCode
+    );
+    saveTickets(updatedTickets);
+  }
+
+  const supabase = getSupabaseClient();
+  if (supabase && target) {
+    try {
+      await supabase.from("tickets").delete().eq("order_id", target.id);
+      await supabase.from("orders").delete().eq("id", target.id);
+    } catch {
+      // fallback local
+    }
+  }
+}
+
 export interface ScanValidationResult {
   outcome: "AUTORIZADO" | "YA_USADO" | "NO_ENCONTRADO" | "ANULADO";
   message: string;
@@ -1406,7 +1331,7 @@ export function getBankSettings(): BankSettings {
     return INITIAL_SETTINGS;
   }
   try {
-    return JSON.parse(raw);
+    return { ...INITIAL_SETTINGS, ...JSON.parse(raw) };
   } catch {
     return INITIAL_SETTINGS;
   }

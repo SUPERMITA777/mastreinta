@@ -41,6 +41,15 @@ export interface EventItem {
   organizerWhatsapp?: string; // WhatsApp directo del organizador para consultas y compra de entradas
   instagramUrl?: string; // Link a Instagram del evento / productora
   tiktokUrl?: string; // Link a TikTok / Red social adicional
+  // Textos editables de la página / modal del evento (si están vacíos se usan los textos por defecto)
+  headerLabel?: string; // Encabezado grande arriba del título (ej: "MAS30")
+  ticketInfoText?: string; // Texto de precio. Admite {precio}
+  checkoutNote?: string; // Texto bajo "Reservar Entradas con QR"
+  whatsappMessage?: string; // Mensaje prearmado de WhatsApp. Admite {evento} y {fecha}
+  whatsappLabel?: string; // Texto del botón de WhatsApp
+  instagramLabel?: string; // Texto del botón de Instagram
+  tiktokLabel?: string; // Texto del botón de TikTok / otra red
+  mapQuery?: string; // Búsqueda personalizada para el mapa (si se deja vacío usa predio + dirección)
   createdAt: string;
 }
 
@@ -140,4 +149,8 @@ export interface BankSettings {
   whatsappSupport: string;
   instagramHandle: string;
   adminPin: string;
+  // Vista previa al compartir el link (WhatsApp, Instagram, Facebook, etc.)
+  shareTitle?: string;
+  shareDescription?: string;
+  shareImageUrl?: string;
 }

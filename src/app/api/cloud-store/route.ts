@@ -1,29 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { revalidatePath } from "next/cache";
+import {
+  BUCKET_NAME,
+  STATE_FILE,
+  getAdminSupabase,
+} from "@/lib/cloudState.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  "https://hpbwcewuekxfqlofwpzu.supabase.co";
-const FALLBACK_KEY_PARTS = [
-  "sb",
-  "secret",
-  "ntaC8uCp9T3PoUT92GiUGw",
-  "Wh9YaKPf",
-];
-const SUPABASE_SERVICE_KEY =
-  process.env.SUPABASE_SECRET_KEY || FALLBACK_KEY_PARTS.join("_");
-
-const BUCKET_NAME = "mas30-cloud-db";
-const STATE_FILE = "mas30-state-v1.json";
-
-function getAdminSupabase() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 export async function GET() {
   try {
@@ -175,6 +159,15 @@ export async function POST(req: Request) {
         { ok: false, error: error.message },
         { status: 500 }
       );
+    }
+
+    // Si cambió la configuración (incluye vista previa al compartir), refresca los metadatos
+    if (payload.settings) {
+      try {
+        revalidatePath("/", "layout");
+      } catch {
+        // ignore
+      }
     }
 
     return NextResponse.json({

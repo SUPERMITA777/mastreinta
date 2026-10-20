@@ -32,6 +32,8 @@ import {
   INITIAL_SETTINGS,
 } from "@/lib/store";
 import BreshPosterArt from "./BreshPosterArt";
+import EventPriceText from "./EventPriceText";
+import { fillEventTemplate, getEventText } from "@/lib/eventTexts";
 
 interface BreshEventModalProps {
   event: EventItem | null;
@@ -187,9 +189,11 @@ export default function BreshEventModal({
 
               <div className="relative z-10">
                 <div className="mb-8">
-                  <h1 className="text-4xl md:text-5xl font-medium mt-4 mb-2 tracking-tight">
-                    MAS30
-                  </h1>
+                  {getEventText(event, "headerLabel") && (
+                    <h1 className="text-4xl md:text-5xl font-medium mt-4 mb-2 tracking-tight">
+                      {getEventText(event, "headerLabel")}
+                    </h1>
+                  )}
                   <h2 className="text-3xl md:text-5xl font-medium mb-2 leading-tight">
                     {event.title}
                   </h2>
@@ -220,14 +224,17 @@ export default function BreshEventModal({
                           href={`https://wa.me/${(
                             event.organizerWhatsapp || bank.whatsappSupport
                           ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                            `¡Hola MAS30! Quiero hacer una consulta / comprar entradas para el evento *${event.title}* (${event.dateLabel}).`
+                            fillEventTemplate(
+                              getEventText(event, "whatsappMessage"),
+                              event
+                            )
                           )}`}
                           target="_blank"
                           rel="noreferrer"
                           className="flex-1 min-w-[200px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] text-white text-xs font-medium border border-white/15 transition-colors"
                         >
                           <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
-                          WhatsApp Organizador (Consultas & Tickets)
+                          {getEventText(event, "whatsappLabel")}
                         </a>
 
                         <button
@@ -269,7 +276,7 @@ export default function BreshEventModal({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
                         >
                           <Instagram className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                          Instagram Oficial
+                          {getEventText(event, "instagramLabel")}
                         </a>
                         {event.tiktokUrl && (
                           <a
@@ -279,7 +286,7 @@ export default function BreshEventModal({
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
                           >
                             <ExternalLink className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                            Red Social / Video
+                            {getEventText(event, "tiktokLabel")}
                           </a>
                         )}
                       </div>
@@ -344,9 +351,11 @@ export default function BreshEventModal({
                       <h3 className="text-xl font-medium text-white">
                         Reservar Entradas con QR
                       </h3>
-                      <p className="text-xs text-white/60">
-                        Pago por transferencia · El administrador autoriza y emite 1 QR por entrada
-                      </p>
+                      {getEventText(event, "checkoutNote") && (
+                        <p className="text-xs text-white/60">
+                          {getEventText(event, "checkoutNote")}
+                        </p>
+                      )}
                     </div>
                     <QrCode className="w-6 h-6 text-[#ffb5d7]" />
                   </div>
@@ -535,42 +544,45 @@ export default function BreshEventModal({
                   <div className="mb-10">
                     <h3 className="text-2xl font-normal mb-6">Información</h3>
                     <div className="flex flex-col gap-4 mb-4">
-                      <div className="flex items-start gap-4">
-                        <div className="mt-1">
-                          <Info className="w-[18px] h-[18px] text-white/60" />
+                      {event.ageRestriction?.trim() && (
+                        <div className="flex items-start gap-4">
+                          <div className="mt-1">
+                            <Info className="w-[18px] h-[18px] text-white/60" />
+                          </div>
+                          <div>
+                            <p className="text-white/60 text-sm leading-relaxed whitespace-pre-line">
+                              {event.ageRestriction}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-white/60 text-sm leading-relaxed">
-                            {event.ageRestriction}
-                          </p>
+                      )}
+                      {event.description?.trim() && (
+                        <div className="flex items-start gap-4">
+                          <div className="mt-1">
+                            <Info className="w-[18px] h-[18px] text-white/60" />
+                          </div>
+                          <div>
+                            <p className="text-white/60 text-sm leading-relaxed whitespace-pre-line">
+                              {event.description}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-start gap-4">
-                        <div className="mt-1">
-                          <Info className="w-[18px] h-[18px] text-white/60" />
+                      )}
+                      {getEventText(event, "ticketInfoText").trim() && (
+                        <div className="flex items-start gap-4">
+                          <div className="mt-1">
+                            <QrCode className="w-[18px] h-[18px] text-white/60" />
+                          </div>
+                          <div>
+                            <p className="text-white/60 text-sm leading-relaxed whitespace-pre-line">
+                              <EventPriceText
+                                event={event}
+                                text={getEventText(event, "ticketInfoText")}
+                              />
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-white/60 text-sm leading-relaxed">
-                            {event.description}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-4">
-                        <div className="mt-1">
-                          <QrCode className="w-[18px] h-[18px] text-white/60" />
-                        </div>
-                        <div>
-                          <p className="text-white/60 text-sm leading-relaxed">
-                            Entradas desde{" "}
-                            <strong className="text-white font-medium">
-                              {formatARS(
-                                Math.min(...event.ticketTiers.map((t) => t.price))
-                              )}
-                            </strong>{" "}
-                            por transferencia. Al autorizarse tu pago recibís un QR individual por cada entrada.
-                          </p>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   </div>
 
@@ -583,7 +595,9 @@ export default function BreshEventModal({
                       </div>
                       <div>
                         <p className="text-white/60 text-sm">
-                          {event.venueAddress}, {event.venueCity}
+                          {[event.venueAddress, event.venueCity]
+                            .filter((s) => s && s.trim())
+                            .join(", ")}
                         </p>
                       </div>
                     </div>

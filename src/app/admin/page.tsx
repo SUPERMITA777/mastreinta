@@ -30,6 +30,7 @@ import {
   deleteAdminUser,
   deleteEvent,
   deleteInquiry,
+  deleteOrder,
   formatARS,
   getAdminUsers,
   getBankSettings,
@@ -69,6 +70,12 @@ import {
 } from "@/lib/supabase";
 import TicketQRCard from "@/components/TicketQRCard";
 import BreshPosterArt from "@/components/BreshPosterArt";
+import {
+  EVENT_TEXT_DEFAULTS,
+  EventTextKey,
+  buildMapEmbedUrl,
+  getEventText,
+} from "@/lib/eventTexts";
 
 type AdminTab =
   | "reservas"
@@ -150,6 +157,13 @@ export default function AdminDashboardPage() {
     "https://instagram.com/mas30.eventos"
   );
   const [evTiktokUrl, setEvTiktokUrl] = useState("");
+  // Textos editables de la página / modal del evento
+  const [evTexts, setEvTexts] = useState<Record<EventTextKey, string>>({
+    ...EVENT_TEXT_DEFAULTS,
+  });
+  const [evMapQuery, setEvMapQuery] = useState("");
+  const setEvText = (key: EventTextKey, value: string) =>
+    setEvTexts((prev) => ({ ...prev, [key]: value }));
   const [evLineupText, setEvLineupText] = useState(
     "DJ Residente MAS30\nInvitado Especial Retro Set"
   );
@@ -178,6 +192,53 @@ export default function AdminDashboardPage() {
   const [faqSavedMsg, setFaqSavedMsg] = useState<string>("");
 
   const [configSaved, setConfigSaved] = useState(false);
+  const [shareSaved, setShareSaved] = useState(false);
+  const [shareUploading, setShareUploading] = useState(false);
+
+  // Sube la imagen de la vista previa (OG) a Supabase Storage
+  const handleShareImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) return;
+      const img = new Image();
+      img.onload = async () => {
+        const maxW = 1200;
+        const scale = img.width > maxW ? maxW / img.width : 1;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // JPEG liviano (WhatsApp ignora imágenes muy pesadas)
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        setShareUploading(true);
+        try {
+          const res = await fetch("/api/cloud-store", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "upload_flyer", dataUrl }),
+          });
+          const data = await res.json();
+          if (res.ok && data.url) {
+            setBankSettings((prev) => ({ ...prev, shareImageUrl: data.url }));
+          } else {
+            alert("No se pudo subir la imagen.");
+          }
+        } catch {
+          alert("No se pudo subir la imagen.");
+        } finally {
+          setShareUploading(false);
+        }
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
   const [supabaseKeyInput, setSupabaseKeyInput] = useState("");
   const [supabaseStatusMsg, setSupabaseStatusMsg] = useState("");
 
@@ -404,14 +465,16 @@ export default function AdminDashboardPage() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
 
+    const mapQuery =
+      evMapQuery.trim() || `${evVenueName} ${evVenueAddress} ${evVenueCity}`.trim();
+
     const newEvent: EventItem = {
       id: editingEventId || `evt-${Date.now()}`,
       slug: editingEventId
         ? events.find((x) => x.id === editingEventId)?.slug || slug
         : slug,
       title: evTitle.toUpperCase(),
-      subtitle:
-        evSubtitle || "Fiesta exclusiva +30 · Acceso con QR individual",
+      subtitle: evSubtitle,
       category: evCategory,
       date: "2026-12-20",
       dateLabel: evDateLabel,
@@ -422,22 +485,23 @@ export default function AdminDashboardPage() {
       venueAddress: evVenueAddress || evVenueName,
       venueCity: evVenueCity,
       country: "Argentina",
-      mapUrl: `https://maps.google.com/?q=${encodeURIComponent(
-        evVenueName + " " + evVenueAddress
-      )}`,
-      mapEmbedUrl: `https://www.google.com/maps?q=${encodeURIComponent(
-        evVenueName + " " + evVenueAddress
-      )}&output=embed`,
+      mapUrl: `https://maps.google.com/?q=${encodeURIComponent(mapQuery)}`,
+      mapEmbedUrl: buildMapEmbedUrl(mapQuery),
+      mapQuery: evMapQuery.trim() || undefined,
       flyerUrl: evFlyerUrl,
       flyerGradient: evFlyerColor,
       badge: evBadge,
       featured: true,
-      ageRestriction:
-        "Evento exclusivo para mayores de 30 años. Ingreso con DNI físico.",
+      ageRestriction: evTexts.ageRestriction,
       dressCode: evDressCode,
-      description:
-        evDescription ||
-        "Viví una nueva edición de MAS30 con la mejor música, ambientación de primer nivel y acceso rápido mediante QR individual.",
+      description: evDescription,
+      headerLabel: evTexts.headerLabel,
+      ticketInfoText: evTexts.ticketInfoText,
+      checkoutNote: evTexts.checkoutNote,
+      whatsappMessage: evTexts.whatsappMessage,
+      whatsappLabel: evTexts.whatsappLabel,
+      instagramLabel: evTexts.instagramLabel,
+      tiktokLabel: evTexts.tiktokLabel,
       highlights: [
         "Exclusivo para mayores de 30 años",
         "Ingreso ágil con código QR individual en puerta",
@@ -465,7 +529,10 @@ export default function AdminDashboardPage() {
     setEvSubtitle("");
     setEvVenueName("");
     setEvVenueAddress("");
+    setEvVenueCity("Buenos Aires");
+    setEvMapQuery("");
     setEvDescription("");
+    setEvTexts({ ...EVENT_TEXT_DEFAULTS });
     setEvHidden(false);
     setEvPublishAt("");
     setEventSavedMsg(true);
@@ -475,19 +542,30 @@ export default function AdminDashboardPage() {
   const handleLoadEventToEdit = (ev: EventItem) => {
     setEditingEventId(ev.id);
     setEvTitle(ev.title);
-    setEvSubtitle(ev.subtitle);
+    setEvSubtitle(ev.subtitle || "");
     setEvCategory(ev.category);
     setEvDateLabel(ev.dateLabel);
     setEvShortDate(ev.shortDate || "14.11");
     setEvTime(ev.time);
     setEvVenueName(ev.venueName);
     setEvVenueAddress(ev.venueAddress);
-    setEvVenueCity(ev.venueCity);
+    setEvVenueCity(ev.venueCity || "");
+    setEvMapQuery(ev.mapQuery || "");
     setEvFlyerUrl(ev.flyerUrl);
     setEvFlyerColor(ev.flyerGradient || "#AF2C75");
     setEvBadge(ev.badge);
     setEvDressCode(ev.dressCode);
-    setEvDescription(ev.description);
+    setEvDescription(ev.description || "");
+    setEvTexts({
+      headerLabel: getEventText(ev, "headerLabel"),
+      ageRestriction: getEventText(ev, "ageRestriction"),
+      ticketInfoText: getEventText(ev, "ticketInfoText"),
+      checkoutNote: getEventText(ev, "checkoutNote"),
+      whatsappMessage: getEventText(ev, "whatsappMessage"),
+      whatsappLabel: getEventText(ev, "whatsappLabel"),
+      instagramLabel: getEventText(ev, "instagramLabel"),
+      tiktokLabel: getEventText(ev, "tiktokLabel"),
+    });
     setEvHidden(Boolean(ev.hidden));
     setEvPublishAt(ev.publishAt || "");
     setEvOrganizerWhatsapp(ev.organizerWhatsapp || "+5491155553030");
@@ -1105,6 +1183,18 @@ export default function AdminDashboardPage() {
                             </Link>
                           </>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await deleteOrder(order.id);
+                            syncAll();
+                          }}
+                          title="Eliminar orden y sus QRs"
+                          className="p-2 rounded-[3px] bg-[#121212] text-white/40 hover:text-red-400 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
@@ -1527,6 +1617,14 @@ export default function AdminDashboardPage() {
                       setEditingEventId(null);
                       setEvTitle("");
                       setEvSubtitle("");
+                      setEvVenueName("");
+                      setEvVenueAddress("");
+                      setEvVenueCity("Buenos Aires");
+                      setEvMapQuery("");
+                      setEvDescription("");
+                      setEvTexts({ ...EVENT_TEXT_DEFAULTS });
+                      setEvHidden(false);
+                      setEvPublishAt("");
                     }}
                     className="text-xs text-[#8a8a8a] hover:text-white underline cursor-pointer"
                   >
@@ -1543,10 +1641,22 @@ export default function AdminDashboardPage() {
               )}
 
               <form onSubmit={handleSaveEvent} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Título de Tarjeta (Ej: PALERMO - CROBAR) *
+                      Encabezado Superior (Ej: MAS30)
+                    </label>
+                    <input
+                      type="text"
+                      value={evTexts.headerLabel}
+                      onChange={(e) => setEvText("headerLabel", e.target.value)}
+                      placeholder="MAS30 (dejá vacío para ocultar)"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Título del Evento (Ej: HALLOWEEN) *
                     </label>
                     <input
                       type="text"
@@ -1570,6 +1680,19 @@ export default function AdminDashboardPage() {
                       <option value="Festivales">Festivales</option>
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Subtítulo (se muestra en la página completa del evento, opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={evSubtitle}
+                    onChange={(e) => setEvSubtitle(e.target.value)}
+                    placeholder="Ej: Fiesta exclusiva +30 · Acceso con QR individual"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -1611,7 +1734,7 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs text-[#8a8a8a] mb-1">
                       Nombre del Predio / Club *
@@ -1627,7 +1750,7 @@ export default function AdminDashboardPage() {
                   </div>
                   <div>
                     <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Dirección Exacta *
+                      Dirección / Texto de Ubicación *
                     </label>
                     <input
                       type="text"
@@ -1638,6 +1761,31 @@ export default function AdminDashboardPage() {
                       className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Ciudad / Zona
+                    </label>
+                    <input
+                      type="text"
+                      value={evVenueCity}
+                      onChange={(e) => setEvVenueCity(e.target.value)}
+                      placeholder="Buenos Aires"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Búsqueda para el Mapa de Google (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={evMapQuery}
+                    onChange={(e) => setEvMapQuery(e.target.value)}
+                    placeholder="Si lo dejás vacío usa Predio + Dirección + Ciudad (Ej: Palermo, Buenos Aires)"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -1664,16 +1812,76 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-[#8a8a8a] mb-1">
-                    Descripción del Evento
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={evDescription}
-                    onChange={(e) => setEvDescription(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                  />
+                {/* Textos de la Sección "Información" del Evento */}
+                <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs uppercase text-[#ffb5d7] block">
+                      Textos de &ldquo;Información&rdquo; del Evento
+                    </span>
+                    <span className="text-[10px] text-[#8a8a8a]">
+                      Dejá vacío cualquier campo que quieras ocultar
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      1° Línea · Edad / Requisitos de ingreso (ícono ⓘ)
+                    </label>
+                    <input
+                      type="text"
+                      value={evTexts.ageRestriction}
+                      onChange={(e) =>
+                        setEvText("ageRestriction", e.target.value)
+                      }
+                      placeholder="Ej: Evento exclusivo para mayores de 30 años. Ingreso con DNI físico."
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      2° Línea · Descripción del Evento (ícono ⓘ)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={evDescription}
+                      onChange={(e) => setEvDescription(e.target.value)}
+                      placeholder="Ej: Disfraces, pizza free y mucho modo MASTREINTA..."
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      3° Línea · Texto de entradas y QR (ícono QR · usá{" "}
+                      <code className="text-[#ffb5d7]">{"{precio}"}</code> para
+                      mostrar el valor más bajo automáticamente)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={evTexts.ticketInfoText}
+                      onChange={(e) =>
+                        setEvText("ticketInfoText", e.target.value)
+                      }
+                      placeholder="Entradas desde {precio} por transferencia..."
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Subtítulo en el cuadro de compra (&ldquo;Reservar Entradas con QR&rdquo;)
+                    </label>
+                    <input
+                      type="text"
+                      value={evTexts.checkoutNote}
+                      onChange={(e) =>
+                        setEvText("checkoutNote", e.target.value)
+                      }
+                      placeholder="Pago por transferencia · El administrador autoriza y emite 1 QR por entrada"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
                 </div>
 
                 {/* Visibilidad, Ocultar y Fecha de Lanzamiento Automático */}
@@ -1756,6 +1964,67 @@ export default function AdminDashboardPage() {
                       />
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Texto botón WhatsApp
+                      </label>
+                      <input
+                        type="text"
+                        value={evTexts.whatsappLabel}
+                        onChange={(e) =>
+                          setEvText("whatsappLabel", e.target.value)
+                        }
+                        placeholder="WhatsApp Organizador (Consultas & Tickets)"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Texto botón Instagram
+                      </label>
+                      <input
+                        type="text"
+                        value={evTexts.instagramLabel}
+                        onChange={(e) =>
+                          setEvText("instagramLabel", e.target.value)
+                        }
+                        placeholder="Instagram Oficial"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Texto botón Red Social extra
+                      </label>
+                      <input
+                        type="text"
+                        value={evTexts.tiktokLabel}
+                        onChange={(e) =>
+                          setEvText("tiktokLabel", e.target.value)
+                        }
+                        placeholder="Red Social / Video"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Mensaje automático de WhatsApp (podés usar{" "}
+                      <code className="text-[#ffb5d7]">{"{evento}"}</code> y{" "}
+                      <code className="text-[#ffb5d7]">{"{fecha}"}</code>)
+                    </label>
+                    <input
+                      type="text"
+                      value={evTexts.whatsappMessage}
+                      onChange={(e) =>
+                        setEvText("whatsappMessage", e.target.value)
+                      }
+                      className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
                 </div>
 
                 {/* Tandas de Precios */}
@@ -1789,59 +2058,81 @@ export default function AdminDashboardPage() {
                   {evTiers.map((tier, idx) => (
                     <div
                       key={tier.id}
-                      className="p-3 rounded-md bg-[#121212] grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"
+                      className="p-3 rounded-md bg-[#121212] space-y-2"
                     >
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          value={tier.name}
+                          onChange={(e) =>
+                            setEvTiers((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? { ...item, name: e.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                          placeholder="Nombre de la tanda"
+                          className="sm:col-span-5 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                        />
+                        <input
+                          type="number"
+                          value={tier.price}
+                          onChange={(e) =>
+                            setEvTiers((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? { ...item, price: Number(e.target.value) }
+                                  : item
+                              )
+                            )
+                          }
+                          placeholder="Precio ($)"
+                          className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                        />
+                        <input
+                          type="number"
+                          value={tier.stock}
+                          onChange={(e) =>
+                            setEvTiers((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? { ...item, stock: Number(e.target.value) }
+                                  : item
+                              )
+                            )
+                          }
+                          placeholder="Cupo"
+                          className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEvTiers((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          className="sm:col-span-1 text-white/50 hover:text-white flex justify-center cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                       <input
                         type="text"
-                        value={tier.name}
+                        value={tier.description || ""}
                         onChange={(e) =>
                           setEvTiers((prev) =>
                             prev.map((item, i) =>
                               i === idx
-                                ? { ...item, name: e.target.value }
+                                ? { ...item, description: e.target.value }
                                 : item
                             )
                           )
                         }
-                        className="sm:col-span-5 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                        placeholder="Descripción de la tanda (ej: Acceso general con 1 código QR individual)"
+                        className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white/80"
                       />
-                      <input
-                        type="number"
-                        value={tier.price}
-                        onChange={(e) =>
-                          setEvTiers((prev) =>
-                            prev.map((item, i) =>
-                              i === idx
-                                ? { ...item, price: Number(e.target.value) }
-                                : item
-                            )
-                          )
-                        }
-                        className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                      />
-                      <input
-                        type="number"
-                        value={tier.stock}
-                        onChange={(e) =>
-                          setEvTiers((prev) =>
-                            prev.map((item, i) =>
-                              i === idx
-                                ? { ...item, stock: Number(e.target.value) }
-                                : item
-                            )
-                          )
-                        }
-                        className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEvTiers((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                        className="sm:col-span-1 text-white/50 hover:text-white flex justify-center cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -2452,6 +2743,152 @@ export default function AdminDashboardPage() {
                 <code className="text-white">tickets</code>,{" "}
                 <code className="text-white">inquiries</code>).
               </p>
+            </div>
+
+            {/* VISTA PREVIA AL COMPARTIR EL LINK (WhatsApp / redes) */}
+            <div className="lg:col-span-12 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+              <h2 className="text-2xl font-normal text-white">
+                Vista previa al compartir el link
+              </h2>
+              <p className="text-xs text-[#8a8a8a]">
+                Es la tarjeta que aparece cuando compartís la página en
+                WhatsApp, Instagram, Facebook, etc.
+              </p>
+              {shareSaved && (
+                <div className="p-3 rounded bg-[#353535] text-xs text-[#ffb5d7]">
+                  ✓ Vista previa actualizada. WhatsApp puede tardar en mostrar
+                  el cambio en links ya compartidos.
+                </div>
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    saveBankSettings(bankSettings);
+                    setShareSaved(true);
+                    setTimeout(() => setShareSaved(false), 4000);
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Título
+                    </label>
+                    <input
+                      type="text"
+                      value={bankSettings.shareTitle || ""}
+                      onChange={(e) =>
+                        setBankSettings({
+                          ...bankSettings,
+                          shareTitle: e.target.value,
+                        })
+                      }
+                      maxLength={70}
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Descripción
+                    </label>
+                    <textarea
+                      value={bankSettings.shareDescription || ""}
+                      onChange={(e) =>
+                        setBankSettings({
+                          ...bankSettings,
+                          shareDescription: e.target.value,
+                        })
+                      }
+                      rows={3}
+                      maxLength={200}
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Imagen (recomendado 1200×630)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="text"
+                        value={bankSettings.shareImageUrl || ""}
+                        onChange={(e) =>
+                          setBankSettings({
+                            ...bankSettings,
+                            shareImageUrl: e.target.value,
+                          })
+                        }
+                        placeholder="https://... o subí una imagen"
+                        className="flex-1 min-w-0 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                      <label className="px-4 py-2.5 rounded-[3px] bg-[#353535] text-white text-xs cursor-pointer">
+                        {shareUploading ? "Subiendo..." : "Subir imagen"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleShareImageUpload}
+                          disabled={shareUploading}
+                        />
+                      </label>
+                      {bankSettings.shareImageUrl && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBankSettings({
+                              ...bankSettings,
+                              shareImageUrl: "",
+                            })
+                          }
+                          className="px-4 py-2.5 rounded-[3px] bg-[#353535] text-white text-xs cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={shareUploading}
+                    className="px-6 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer disabled:opacity-50"
+                  >
+                    Guardar Vista Previa
+                  </button>
+                </form>
+
+                {/* Simulación de la tarjeta de WhatsApp */}
+                <div>
+                  <span className="block text-xs text-[#8a8a8a] mb-2">
+                    Así se verá en WhatsApp
+                  </span>
+                  <div className="max-w-sm rounded-lg bg-[#005c4b] p-1.5">
+                    <div className="rounded-md bg-[#025144] overflow-hidden">
+                      {bankSettings.shareImageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={bankSettings.shareImageUrl}
+                          alt="Vista previa"
+                          className="w-full aspect-[1200/630] object-cover"
+                        />
+                      )}
+                      <div className="p-2.5 space-y-1">
+                        <p className="text-sm font-semibold text-white">
+                          {bankSettings.shareTitle || "MAS30 | Eventos"}
+                        </p>
+                        <p className="text-xs text-white/70 line-clamp-2">
+                          {bankSettings.shareDescription}
+                        </p>
+                        <p className="text-xs text-white/50">
+                          mastreinta.vercel.app
+                        </p>
+                      </div>
+                    </div>
+                    <p className="px-1.5 py-1 text-xs text-[#53bdeb] underline">
+                      https://mastreinta.vercel.app/
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
