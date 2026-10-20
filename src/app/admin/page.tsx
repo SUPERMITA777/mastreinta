@@ -1073,8 +1073,8 @@ export default function AdminDashboardPage() {
                         <h3 className="text-lg font-medium text-white">
                           {order.buyerName}{" "}
                           <span className="text-xs font-normal text-[#8a8a8a]">
-                            (DNI {order.buyerDni} · {order.buyerPhone} ·{" "}
-                            {order.buyerEmail})
+                            ({order.buyerDni ? `DNI ${order.buyerDni} · ` : ""}
+                            {order.buyerPhone} · {order.buyerEmail})
                           </span>
                         </h3>
 
@@ -1090,13 +1090,6 @@ export default function AdminDashboardPage() {
                             <strong className="text-[#ffb5d7] text-sm">
                               {formatARS(order.totalAmount)}
                             </strong>
-                          </span>
-                          <span>
-                            Comprobante:{" "}
-                            <strong className="font-mono text-white">
-                              {order.transferReference}
-                            </strong>{" "}
-                            ({order.transferSender})
                           </span>
                         </div>
 

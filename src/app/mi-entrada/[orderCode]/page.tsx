@@ -16,6 +16,7 @@ import {
   approveOrderAndGenerateQRs,
   formatARS,
   getBankSettings,
+  getEvents,
   getOrderByCode,
   getTicketsByOrderCode,
   INITIAL_SETTINGS,
@@ -70,20 +71,12 @@ export default function MyOrderTicketsPage() {
           No encontramos la orden &ldquo;{rawCode}&rdquo;
         </h1>
         <p className="text-sm text-[#8a8a8a] max-w-md mx-auto">
-          Probá con{" "}
-          <strong className="text-white font-mono">MAS30-8492</strong> (orden aprobada) o{" "}
-          <strong className="text-white font-mono">MAS30-9104</strong> (pendiente).
+          Verificá que el código de reserva esté bien escrito.
         </p>
         <div className="flex justify-center gap-3">
           <Link
-            href="/mi-entrada/MAS30-8492"
-            className="px-5 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm"
-          >
-            Ver Orden Ejemplo (MAS30-8492)
-          </Link>
-          <Link
             href="/"
-            className="px-5 py-2.5 rounded-[3px] bg-[#353535] text-white font-medium text-sm"
+            className="px-5 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm"
           >
             Volver a Eventos
           </Link>
@@ -92,10 +85,15 @@ export default function MyOrderTicketsPage() {
     );
   }
 
+  const orderEvent = getEvents().find((e) => e.id === order.eventId);
+  const organizerPhone = (
+    orderEvent?.organizerWhatsapp || bank.whatsappSupport
+  ).replace(/[^0-9]/g, "");
+
   const whatsappMessage = encodeURIComponent(
-    `¡Hola MAS30! Informo mi reserva código *${order.orderCode}* para *${order.eventTitle}* (${order.quantity}x ${order.tierName} - Total ${formatARS(
+    `¡Hola! Te envío el comprobante de mi reserva código *${order.orderCode}* para *${order.eventTitle}* (${order.quantity}x ${order.tierName} - Total ${formatARS(
       order.totalAmount
-    )}). Comprobante: ${order.transferReference}.`
+    )}). A nombre de ${order.buyerName}.`
   );
 
   return (
@@ -161,28 +159,23 @@ export default function MyOrderTicketsPage() {
                 {order.eventTitle}
               </h2>
               <p className="text-sm text-[#8a8a8a]">
-                Titular: <strong className="text-white">{order.buyerName}</strong>{" "}
-                (DNI {order.buyerDni}) · {order.quantity}x {order.tierName} · Total:{" "}
+                Titular: <strong className="text-white">{order.buyerName}</strong>
+                {order.buyerDni ? ` (DNI ${order.buyerDni})` : ""} ·{" "}
+                {order.quantity}x {order.tierName} · Total:{" "}
                 <strong className="text-[#ffb5d7]">
                   {formatARS(order.totalAmount)}
                 </strong>
               </p>
-              <p className="text-xs text-[#8a8a8a]">
-                Comprobante: {order.transferReference} ({order.transferSender})
-              </p>
             </div>
 
             <a
-              href={`https://wa.me/${bank.whatsappSupport.replace(
-                /[^0-9]/g,
-                ""
-              )}?text=${whatsappMessage}`}
+              href={`https://wa.me/${organizerPhone}?text=${whatsappMessage}`}
               target="_blank"
               rel="noreferrer"
               className="px-5 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 shrink-0 hover:brightness-90"
             >
               <MessageCircle className="w-4 h-4" />
-              Enviar Comprobante por WhatsApp
+              Enviar Comprobante al WhatsApp del Organizador
             </a>
           </div>
 

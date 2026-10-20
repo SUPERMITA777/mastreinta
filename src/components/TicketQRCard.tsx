@@ -96,10 +96,12 @@ export default function TicketQRCard({
             <p className="text-[11px] uppercase text-[#8a8a8a]">Asistente</p>
             <p className="text-sm font-medium text-white">{ticket.holderName}</p>
           </div>
-          <div className="text-right">
-            <p className="text-[11px] uppercase text-[#8a8a8a]">DNI</p>
-            <p className="text-xs font-mono text-white">{ticket.holderDni}</p>
-          </div>
+          {ticket.holderDni && (
+            <div className="text-right">
+              <p className="text-[11px] uppercase text-[#8a8a8a]">DNI</p>
+              <p className="text-xs font-mono text-white">{ticket.holderDni}</p>
+            </div>
+          )}
         </div>
 
         {/* QR Code */}

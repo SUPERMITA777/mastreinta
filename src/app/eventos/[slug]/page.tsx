@@ -142,8 +142,7 @@ export default function EventDetailPage() {
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!buyerName.trim() || !buyerDni.trim() || !transferReference.trim())
-      return;
+    if (!buyerName.trim()) return;
     setSubmittingOrder(true);
     try {
       const order = await createTransferOrder({
@@ -151,11 +150,11 @@ export default function EventDetailPage() {
         tierId: selectedTier.id,
         quantity,
         buyerName,
-        buyerDni,
+        buyerDni: "",
         buyerEmail,
         buyerPhone,
-        transferSender: transferSender || buyerName,
-        transferReference,
+        transferSender: buyerName,
+        transferReference: "Transferencia / WhatsApp",
         notes,
         attendees,
       });
@@ -557,24 +556,14 @@ export default function EventDetailPage() {
 
               {/* 4. Formulario del Comprador */}
               <form onSubmit={handleOrderSubmit} className="space-y-3.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    required
-                    value={buyerName}
-                    onChange={(e) => setBuyerName(e.target.value)}
-                    placeholder="Nombre y Apellido *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a]"
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={buyerDni}
-                    onChange={(e) => setBuyerDni(e.target.value)}
-                    placeholder="DNI *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a]"
-                  />
-                </div>
+                <input
+                  type="text"
+                  required
+                  value={buyerName}
+                  onChange={(e) => setBuyerName(e.target.value)}
+                  placeholder="Nombre y Apellido *"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a]"
+                />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
@@ -602,7 +591,7 @@ export default function EventDetailPage() {
                       Nombres para cada QR individual ({quantity} entradas):
                     </p>
                     {attendees.map((att, idx) => (
-                      <div key={idx} className="grid grid-cols-12 gap-2">
+                      <div key={idx}>
                         <input
                           type="text"
                           value={att.name}
@@ -610,40 +599,12 @@ export default function EventDetailPage() {
                             handleAttendeeChange(idx, "name", e.target.value)
                           }
                           placeholder={`Nombre Invitado QR #${idx + 1}`}
-                          className="col-span-7 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                        />
-                        <input
-                          type="text"
-                          value={att.dni}
-                          onChange={(e) =>
-                            handleAttendeeChange(idx, "dni", e.target.value)
-                          }
-                          placeholder="DNI"
-                          className="col-span-5 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                          className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
                         />
                       </div>
                     ))}
                   </div>
                 )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    required
-                    value={transferSender}
-                    onChange={(e) => setTransferSender(e.target.value)}
-                    placeholder="Titular cuenta desde la que transferís *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a]"
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={transferReference}
-                    onChange={(e) => setTransferReference(e.target.value)}
-                    placeholder="N° Comprobante / Operación *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a]"
-                  />
-                </div>
 
                 <input
                   type="text"
@@ -652,6 +613,26 @@ export default function EventDetailPage() {
                   placeholder="Nota opcional (cumpleaños, dudas, etc.)"
                   className="w-full px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white placeholder:text-[#8a8a8a]"
                 />
+
+                <a
+                  href={`https://wa.me/${(
+                    event.organizerWhatsapp || bank.whatsappSupport
+                  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                    `¡Hola! Quiero enviar el comprobante / coordinar mis ${quantity} entrada(s) (${
+                      selectedTier?.name || "Entrada General"
+                    } · Total ${formatARS(totalAmount)}) para *${
+                      event.title
+                    }* (${event.dateLabel}).${
+                      buyerName ? ` Mi nombre es ${buyerName}.` : ""
+                    }`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2.5 px-3.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] border border-[#ffb5d7]/40 text-xs text-white flex items-center justify-center gap-2 transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
+                  Contactar al WhatsApp del Organizador (Enviar Comprobante / Consultas)
+                </a>
 
                 <button
                   type="submit"

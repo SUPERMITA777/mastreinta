@@ -115,8 +115,7 @@ export default function BreshEventModal({
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!buyerName.trim() || !buyerDni.trim() || !transferReference.trim())
-      return;
+    if (!buyerName.trim()) return;
     setSubmitting(true);
     try {
       const order = await createTransferOrder({
@@ -124,11 +123,11 @@ export default function BreshEventModal({
         tierId: selectedTier.id,
         quantity,
         buyerName,
-        buyerDni,
+        buyerDni: "",
         buyerEmail,
         buyerPhone,
-        transferSender: transferSender || buyerName,
-        transferReference,
+        transferSender: buyerName,
+        transferReference: "Transferencia / WhatsApp",
         attendees,
       });
       onClose();
@@ -472,24 +471,14 @@ export default function BreshEventModal({
 
                   {/* Formulario Comprador */}
                   <form onSubmit={handleOrderSubmit} className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <input
-                        type="text"
-                        required
-                        value={buyerName}
-                        onChange={(e) => setBuyerName(e.target.value)}
-                        placeholder="Tu Nombre y Apellido *"
-                        className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
-                      />
-                      <input
-                        type="text"
-                        required
-                        value={buyerDni}
-                        onChange={(e) => setBuyerDni(e.target.value)}
-                        placeholder="Tu DNI *"
-                        className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={buyerName}
+                      onChange={(e) => setBuyerName(e.target.value)}
+                      placeholder="Tu Nombre y Apellido *"
+                      className="w-full px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
+                    />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <input
                         type="text"
@@ -508,24 +497,26 @@ export default function BreshEventModal({
                         className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
                       />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <input
-                        type="text"
-                        required
-                        value={transferSender}
-                        onChange={(e) => setTransferSender(e.target.value)}
-                        placeholder="Titular cuenta emisora *"
-                        className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
-                      />
-                      <input
-                        type="text"
-                        required
-                        value={transferReference}
-                        onChange={(e) => setTransferReference(e.target.value)}
-                        placeholder="N° Comprobante / Operación *"
-                        className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
-                      />
-                    </div>
+
+                    <a
+                      href={`https://wa.me/${(
+                        event.organizerWhatsapp || bank.whatsappSupport
+                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                        `¡Hola! Quiero enviar el comprobante / coordinar mis ${quantity} entrada(s) (${
+                          selectedTier?.name || "Entrada General"
+                        } · Total ${formatARS(totalAmount)}) para *${
+                          event.title
+                        }* (${event.dateLabel}).${
+                          buyerName ? ` Mi nombre es ${buyerName}.` : ""
+                        }`
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full py-2.5 px-3.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] border border-[#ffb5d7]/40 text-xs text-white flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
+                      Contactar al WhatsApp del Organizador (Enviar Comprobante / Consultas)
+                    </a>
 
                     <button
                       type="submit"
