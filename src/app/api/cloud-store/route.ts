@@ -7,7 +7,12 @@ export const revalidate = 0;
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   "https://hpbwcewuekxfqlofwpzu.supabase.co";
-const FALLBACK_KEY_PARTS = ["sb", "secret", "ntaC8uCp9T3PoUT92GiUGw", "Wh9YaKPf"];
+const FALLBACK_KEY_PARTS = [
+  "sb",
+  "secret",
+  "ntaC8uCp9T3PoUT92GiUGw",
+  "Wh9YaKPf",
+];
 const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SECRET_KEY || FALLBACK_KEY_PARTS.join("_");
 
@@ -61,12 +66,83 @@ export async function POST(req: Request) {
     const payload = await req.json();
     const supabase = getAdminSupabase();
 
-    // Ensure bucket exists
     await supabase.storage
       .createBucket(BUCKET_NAME, { public: true })
       .catch(() => {});
 
-    // Read existing cloud state so we can merge safely if only partial keys were sent
+    // Si es una subida directa de imagen de flyer (action === "upload_flyer")
+    if (payload.action === "upload_flyer" && payload.dataUrl) {
+      const match = String(payload.dataUrl).match(
+        /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/
+      );
+      if (!match) {
+        return NextResponse.json(
+          { ok: false, error: "Formato de imagen inválido" },
+          { status: 400 }
+        );
+      }
+      const mimeType = match[1];
+      const base64Data = match[2];
+      const ext = mimeType.includes("png") ? "png" : "jpg";
+      const filePath = `flyers/flyer-${Date.now()}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(filePath, Buffer.from(base64Data, "base64"), {
+          contentType: mimeType,
+          upsert: true,
+        });
+
+      if (upErr) {
+        return NextResponse.json(
+          { ok: false, error: upErr.message },
+          { status: 500 }
+        );
+      }
+
+      const { data: pubUrl } = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(filePath);
+
+      return NextResponse.json({
+        ok: true,
+        url: pubUrl.publicUrl,
+      });
+    }
+
+    // Si algún evento en payload.events tiene una imagen base64, la subimos a Storage y guardamos la URL pública
+    if (Array.isArray(payload.events)) {
+      for (const ev of payload.events) {
+        if (
+          ev &&
+          typeof ev.flyerUrl === "string" &&
+          ev.flyerUrl.startsWith("data:image/")
+        ) {
+          const match = ev.flyerUrl.match(
+            /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/
+          );
+          if (match) {
+            const mimeType = match[1];
+            const base64Data = match[2];
+            const ext = mimeType.includes("png") ? "png" : "jpg";
+            const filePath = `flyers/${ev.id || "evt"}-${Date.now()}.${ext}`;
+            const { error: upErr } = await supabase.storage
+              .from(BUCKET_NAME)
+              .upload(filePath, Buffer.from(base64Data, "base64"), {
+                contentType: mimeType,
+                upsert: true,
+              });
+            if (!upErr) {
+              const { data: pubUrl } = supabase.storage
+                .from(BUCKET_NAME)
+                .getPublicUrl(filePath);
+              ev.flyerUrl = pubUrl.publicUrl;
+            }
+          }
+        }
+      }
+    }
+
     let currentCloud: Record<string, unknown> = {};
     try {
       const { data: existingData } = await supabase.storage
@@ -76,7 +152,7 @@ export async function POST(req: Request) {
         currentCloud = JSON.parse(await existingData.text());
       }
     } catch {
-      // First write
+      // Primera escritura
     }
 
     const merged = {
@@ -101,7 +177,11 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, updatedAt: merged.updatedAt });
+    return NextResponse.json({
+      ok: true,
+      updatedAt: merged.updatedAt,
+      events: merged.events,
+    });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: String(err) },

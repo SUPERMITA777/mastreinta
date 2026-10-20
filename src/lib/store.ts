@@ -518,11 +518,13 @@ function notifyStoreUpdate() {
 
 let cloudSyncInitialized = false;
 let isApplyingCloudState = false;
+let isSavingToCloud = false;
 
 export async function pushToCloudStore(
   partial?: Record<string, unknown>
 ): Promise<boolean> {
   if (typeof window === "undefined" || isApplyingCloudState) return false;
+  isSavingToCloud = true;
   try {
     const payload = partial || {
       events: getEvents(),
@@ -537,23 +539,37 @@ export async function pushToCloudStore(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.events)) {
+        try {
+          localStorage.setItem(
+            STORAGE_KEYS.EVENTS,
+            JSON.stringify(data.events)
+          );
+        } catch {
+          // ignore quota error
+        }
+      }
+    }
+    isSavingToCloud = false;
     return res.ok;
   } catch {
+    isSavingToCloud = false;
     return false;
   }
 }
 
 export async function syncFromCloudStore(): Promise<void> {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || isSavingToCloud) return;
   try {
     const res = await fetch(`/api/cloud-store?t=${Date.now()}`, {
       cache: "no-store",
     });
-    if (!res.ok) return;
+    if (!res.ok || isSavingToCloud) return;
     const data = await res.json();
 
     if (!data.exists || !data.state) {
-      // Si la nube aún está vacía, subimos el estado actual de esta PC a Supabase
       await pushToCloudStore();
       return;
     }
@@ -567,8 +583,12 @@ export async function syncFromCloudStore(): Promise<void> {
       const nextStr = JSON.stringify(val);
       const currStr = localStorage.getItem(storageKey);
       if (currStr !== nextStr) {
-        localStorage.setItem(storageKey, nextStr);
-        changed = true;
+        try {
+          localStorage.setItem(storageKey, nextStr);
+          changed = true;
+        } catch {
+          // ignore quota error
+        }
       }
     };
 
@@ -652,7 +672,11 @@ export function getEventBySlug(slug: string): EventItem | undefined {
 
 export function saveEvents(events: EventItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
+  try {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
+  } catch {
+    // Si la imagen base64 supera la cuota de localStorage, igual la subimos a Supabase Storage en pushToCloudStore
+  }
   notifyStoreUpdate();
   void pushToCloudStore({ events });
 }
@@ -663,7 +687,13 @@ export async function upsertEvent(event: EventItem): Promise<EventItem[]> {
   const updated = exists
     ? current.map((e) => (e.id === event.id ? event : e))
     : [event, ...current];
-  saveEvents(updated);
+  try {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+  } catch {
+    // ignore local quota
+  }
+  notifyStoreUpdate();
+  await pushToCloudStore({ events: updated });
 
   const supabase = getSupabaseClient();
   if (supabase) {
@@ -701,7 +731,13 @@ export async function upsertEvent(event: EventItem): Promise<EventItem[]> {
 
 export async function deleteEvent(eventId: string): Promise<EventItem[]> {
   const updated = getEvents().filter((e) => e.id !== eventId);
-  saveEvents(updated);
+  try {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  notifyStoreUpdate();
+  await pushToCloudStore({ events: updated });
   const supabase = getSupabaseClient();
   if (supabase) {
     try {

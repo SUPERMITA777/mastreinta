@@ -341,9 +341,55 @@ export default function AdminDashboardPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      if (ev.target?.result) {
-        setEvFlyerUrl(ev.target.result as string);
-      }
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) return;
+      const img = new Image();
+      img.onload = async () => {
+        const maxDim = 1080;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          setEvFlyerUrl(rawDataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.84);
+        setEvFlyerUrl(compressedDataUrl);
+
+        // Sube automáticamente la imagen a Supabase Storage (mas30-cloud-db)
+        try {
+          const res = await fetch("/api/cloud-store", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "upload_flyer",
+              dataUrl: compressedDataUrl,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              setEvFlyerUrl(data.url);
+            }
+          }
+        } catch {
+          // Mantiene la versión comprimida si falla la red
+        }
+      };
+      img.src = rawDataUrl;
     };
     reader.readAsDataURL(file);
   };
