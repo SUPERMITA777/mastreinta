@@ -120,12 +120,28 @@ export default function BreshEventModal({
   const totalQRs = quantity * qrCountPerUnit;
   const totalAmount = (selectedTier?.price || 0) * quantity;
 
+  const whatsappOrderText = [
+    `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
+    ``,
+    `🎟 *Detalle de la compra:*`,
+    `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
+    `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
+    `• Total: *${formatARS(totalAmount)}*`,
+    ``,
+    `👤 *Datos del cliente:*`,
+    `• Nombre: ${buyerName.trim() || "-"}`,
+    `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+    `• Email: ${buyerEmail.trim() || "-"}`,
+  ].join("\n");
+
+  const organizerWhatsappHref = `https://wa.me/${(
+    event.organizerWhatsapp || bank.whatsappSupport
+  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!buyerName.trim()) return;
-    setSubmitting(true);
-    try {
-      const order = await createTransferOrder({
+    if (buyerName.trim()) {
+      createTransferOrder({
         event,
         tierId: selectedTier.id,
         quantity,
@@ -136,12 +152,9 @@ export default function BreshEventModal({
         transferSender: buyerName,
         transferReference: "Transferencia / WhatsApp",
         attendees,
-      });
-      onClose();
-      router.push(`/mi-entrada/${order.orderCode}`);
-    } finally {
-      setSubmitting(false);
+      }).catch(() => {});
     }
+    window.open(organizerWhatsappHref, "_blank", "noopener,noreferrer");
   };
 
   const handleQuestionSubmit = async (e: React.FormEvent) => {
@@ -511,26 +524,48 @@ export default function BreshEventModal({
                       href={`https://wa.me/${(
                         event.organizerWhatsapp || bank.whatsappSupport
                       ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                        `¡Hola! Quiero enviar el comprobante / coordinar mis ${quantity} entrada(s) (${
-                          selectedTier?.name || "Entrada General"
-                        } · Total ${formatARS(totalAmount)}) para *${
-                          event.title
-                        }* (${event.dateLabel}).${
-                          buyerName ? ` Mi nombre es ${buyerName}.` : ""
-                        }`
+                        [
+                          `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
+                          ``,
+                          `🎟 *Detalle de la compra:*`,
+                          `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
+                          `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
+                          `• Total: *${formatARS(totalAmount)}*`,
+                          ``,
+                          `👤 *Datos del cliente:*`,
+                          `• Nombre: ${buyerName.trim() || "-"}`,
+                          `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+                          `• Email: ${buyerEmail.trim() || "-"}`,
+                        ].join("\n")
                       )}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="w-full py-2.5 px-3.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] border border-[#ffb5d7]/40 text-xs text-white flex items-center justify-center gap-2 transition-colors"
+                      onClick={() => {
+                        if (buyerName.trim()) {
+                          createTransferOrder({
+                            event,
+                            tierId: selectedTier.id,
+                            quantity,
+                            buyerName,
+                            buyerDni: "",
+                            buyerEmail,
+                            buyerPhone,
+                            transferSender: buyerName,
+                            transferReference: "Transferencia / WhatsApp",
+                            attendees,
+                          }).catch(() => {});
+                        }
+                      }}
+                      className="w-full py-3.5 px-4 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
-                      <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
-                      Contactar al WhatsApp del Organizador (Enviar Comprobante / Consultas)
+                      <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
+                      Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
                     </a>
 
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="w-full py-3.5 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
+                      className="hidden w-full py-3.5 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
                     >
                       {submitting
                         ? "Procesando..."

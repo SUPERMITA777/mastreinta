@@ -8,12 +8,9 @@ import {
   CheckCircle2,
   Clock,
   MessageCircle,
-  QrCode,
-  ShieldCheck,
   X,
 } from "lucide-react";
 import {
-  approveOrderAndGenerateQRs,
   formatARS,
   getBankSettings,
   getEvents,
@@ -31,7 +28,6 @@ export default function MyOrderTicketsPage() {
   const [order, setOrder] = useState<OrderItem | undefined>(undefined);
   const [tickets, setTickets] = useState<TicketQR[]>([]);
   const [bank, setBank] = useState<BankSettings>(INITIAL_SETTINGS);
-  const [approvingDemo, setApprovingDemo] = useState(false);
 
   const loadOrderData = () => {
     const foundOrder = getOrderByCode(rawCode);
@@ -51,17 +47,6 @@ export default function MyOrderTicketsPage() {
       window.removeEventListener("storage", loadOrderData);
     };
   }, [rawCode]);
-
-  const handleQuickDemoApprove = async () => {
-    if (!order) return;
-    setApprovingDemo(true);
-    try {
-      await approveOrderAndGenerateQRs(order.id);
-      loadOrderData();
-    } finally {
-      setApprovingDemo(false);
-    }
-  };
 
   if (!order) {
     return (
@@ -90,16 +75,29 @@ export default function MyOrderTicketsPage() {
     orderEvent?.organizerWhatsapp || bank.whatsappSupport
   ).replace(/[^0-9]/g, "");
 
+  const totalQRs = order.totalQrCount || order.quantity;
+
   const whatsappMessage = encodeURIComponent(
-    `¡Hola! Te envío el comprobante de mi reserva código *${order.orderCode}* para *${order.eventTitle}* (${order.quantity}x ${order.tierName} - Total ${formatARS(
-      order.totalAmount
-    )}). A nombre de ${order.buyerName}.`
+    [
+      `¡Hola! Te envío los datos y el comprobante de mi compra para *${order.eventTitle}* (${order.eventDateLabel}).`,
+      ``,
+      `🎟 *Detalle de la compra:*`,
+      `• Orden: *${order.orderCode}*`,
+      `• Entrada: ${order.quantity}x ${order.tierName}`,
+      `• Cantidad de QRs / Accesos: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
+      `• Total: *${formatARS(order.totalAmount)}*`,
+      ``,
+      `👤 *Datos del cliente:*`,
+      `• Nombre: ${order.buyerName}`,
+      `• WhatsApp: ${order.buyerPhone}`,
+      `• Email: ${order.buyerEmail}`,
+    ].join("\n")
   );
 
   return (
     <div className="bg-dark-background text-white min-h-screen py-12">
       <div className="container space-y-10">
-        {/* Cabecera estilo Bresh */}
+        {/* Cabecera */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <p className="text-sm text-[#8a8a8a] mb-1">
@@ -111,20 +109,6 @@ export default function MyOrderTicketsPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/admin/scanner"
-              className="px-4 py-2 rounded-sm bg-[#3F3F3F] text-white text-sm hover:bg-[#4f4f4f] transition-colors flex items-center gap-2"
-            >
-              <QrCode className="w-4 h-4" />
-              Lector QR Puerta
-            </Link>
-            <Link
-              href="/admin"
-              className="px-4 py-2 rounded-sm bg-[#3F3F3F] text-white text-sm hover:bg-[#4f4f4f] transition-colors flex items-center gap-2"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Panel Admin
-            </Link>
             <Link
               href="/"
               className="px-4 py-2 rounded-sm bg-white text-black text-sm flex items-center gap-1"
@@ -161,9 +145,8 @@ export default function MyOrderTicketsPage() {
               <p className="text-sm text-[#8a8a8a]">
                 Titular: <strong className="text-white">{order.buyerName}</strong>
                 {order.buyerDni ? ` (DNI ${order.buyerDni})` : ""} ·{" "}
-                {order.quantity}x {order.tierName} (
-                {order.totalQrCount || order.quantity} QR
-                {(order.totalQrCount || order.quantity) > 1 ? "s" : ""}) · Total:{" "}
+                {order.quantity}x {order.tierName} ({totalQRs} QR
+                {totalQRs > 1 ? "s" : ""}) · Total:{" "}
                 <strong className="text-[#ffb5d7]">
                   {formatARS(order.totalAmount)}
                 </strong>
@@ -182,26 +165,16 @@ export default function MyOrderTicketsPage() {
           </div>
 
           {order.status === "PENDIENTE" && (
-            <div className="p-5 rounded-md bg-[#121212] border border-[#353535] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="p-5 rounded-md bg-[#121212] border border-[#353535]">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-[#ffb5d7]">
-                  Transferencia en revisión por el Administrador
+                  Transferencia en revisión por el Organizador
                 </p>
                 <p className="text-xs text-[#8a8a8a]">
-                  En cuanto el administrador autorice el pago en el Panel Admin, aparecerán acá tus{" "}
-                  {order.totalQrCount || order.quantity} códigos QR individuales.
+                  Enviá tu comprobante por WhatsApp al organizador. En cuanto se autorice tu pago, recibirás tus{" "}
+                  {totalQRs} código{totalQRs > 1 ? "s" : ""} QR y código de 4 dígitos.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleQuickDemoApprove}
-                disabled={approvingDemo}
-                className="px-4 py-2.5 rounded-[3px] bg-bresh text-white text-xs font-medium cursor-pointer shrink-0 hover:brightness-90"
-              >
-                {approvingDemo
-                  ? "Generando..."
-                  : `Simular Aprobación Admin (${order.totalQrCount || order.quantity} QRs)`}
-              </button>
             </div>
           )}
         </div>

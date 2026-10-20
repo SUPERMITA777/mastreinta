@@ -147,12 +147,39 @@ export default function EventDetailPage() {
     );
   };
 
+  const whatsappOrderText = [
+    `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
+    ``,
+    `🎟 *Detalle de la compra:*`,
+    `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
+    `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
+    `• Total: *${formatARS(totalAmount)}*`,
+    ``,
+    `👤 *Datos del cliente:*`,
+    `• Nombre: ${buyerName.trim() || "-"}`,
+    `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+    `• Email: ${buyerEmail.trim() || "-"}`,
+    ...(attendees.some((a) => a.name.trim())
+      ? [
+          `• Invitados: ${attendees
+            .map((a, i) =>
+              a.name.trim() ? `QR #${i + 1}: ${a.name.trim()}` : null
+            )
+            .filter(Boolean)
+            .join(" | ")}`,
+        ]
+      : []),
+    ...(notes.trim() ? [`• Nota: ${notes.trim()}`] : []),
+  ].join("\n");
+
+  const organizerWhatsappHref = `https://wa.me/${(
+    event.organizerWhatsapp || bank.whatsappSupport
+  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!buyerName.trim()) return;
-    setSubmittingOrder(true);
-    try {
-      const order = await createTransferOrder({
+    if (buyerName.trim()) {
+      createTransferOrder({
         event,
         tierId: selectedTier.id,
         quantity,
@@ -164,11 +191,9 @@ export default function EventDetailPage() {
         transferReference: "Transferencia / WhatsApp",
         notes,
         attendees,
-      });
-      router.push(`/mi-entrada/${order.orderCode}?nueva=1`);
-    } finally {
-      setSubmittingOrder(false);
+      }).catch(() => {});
     }
+    window.open(organizerWhatsappHref, "_blank", "noopener,noreferrer");
   };
 
   const handleQuestionSubmit = async (e: React.FormEvent) => {
@@ -627,26 +652,62 @@ export default function EventDetailPage() {
                   href={`https://wa.me/${(
                     event.organizerWhatsapp || bank.whatsappSupport
                   ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                    `¡Hola! Quiero enviar el comprobante / coordinar mis ${quantity} entrada(s) (${
-                      selectedTier?.name || "Entrada General"
-                    } · Total ${formatARS(totalAmount)}) para *${
-                      event.title
-                    }* (${event.dateLabel}).${
-                      buyerName ? ` Mi nombre es ${buyerName}.` : ""
-                    }`
+                    [
+                      `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
+                      ``,
+                      `🎟 *Detalle de la compra:*`,
+                      `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
+                      `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
+                      `• Total: *${formatARS(totalAmount)}*`,
+                      ``,
+                      `👤 *Datos del cliente:*`,
+                      `• Nombre: ${buyerName.trim() || "-"}`,
+                      `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+                      `• Email: ${buyerEmail.trim() || "-"}`,
+                      ...(attendees.some((a) => a.name.trim())
+                        ? [
+                            `• Invitados: ${attendees
+                              .map((a, i) =>
+                                a.name.trim()
+                                  ? `QR #${i + 1}: ${a.name.trim()}`
+                                  : null
+                              )
+                              .filter(Boolean)
+                              .join(" | ")}`,
+                          ]
+                        : []),
+                      ...(notes.trim() ? [`• Nota: ${notes.trim()}`] : []),
+                    ].join("\n")
                   )}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full py-2.5 px-3.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] border border-[#ffb5d7]/40 text-xs text-white flex items-center justify-center gap-2 transition-colors"
+                  onClick={() => {
+                    if (buyerName.trim()) {
+                      createTransferOrder({
+                        event,
+                        tierId: selectedTier.id,
+                        quantity,
+                        buyerName,
+                        buyerDni: "",
+                        buyerEmail,
+                        buyerPhone,
+                        transferSender: buyerName,
+                        transferReference: "Transferencia / WhatsApp",
+                        notes,
+                        attendees,
+                      }).catch(() => {});
+                    }
+                  }}
+                  className="w-full py-3.5 px-4 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
-                  Contactar al WhatsApp del Organizador (Enviar Comprobante / Consultas)
+                  <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
+                  Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
                 </a>
 
                 <button
                   type="submit"
                   disabled={submittingOrder}
-                  className="w-full py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
+                  className="hidden w-full py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
                 >
                   {submittingOrder
                     ? "Registrando..."
