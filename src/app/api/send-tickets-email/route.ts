@@ -53,12 +53,15 @@ export async function POST(req: Request) {
                 <p style="color:#b0b0b0;font-size:13px;margin:0 0 16px;">${eventDateLabel} · ${eventTime} · ${eventVenue}</p>
                 <div style="background:#121212;padding:10px 14px;border-radius:6px;margin-bottom:16px;text-align:left;">
                   <div style="font-size:12px;color:#8a8a8a;">ASISTENTE</div>
-                  <div style="font-size:15px;color:#ffffff;font-weight:bold;">${t.holderName} (DNI ${t.holderDni})</div>
+                  <div style="font-size:15px;color:#ffffff;font-weight:bold;">${t.holderName}${t.holderDni ? ` (DNI ${t.holderDni})` : ""}</div>
                 </div>
                 <div style="background:#ffffff;display:inline-block;padding:12px;border-radius:8px;">
                   <img src="${qrImgUrl}" alt="QR ${t.shortCode}" width="220" height="220" style="display:block;" />
                 </div>
-                <p style="color:#ffffff;font-family:monospace;font-size:14px;margin:12px 0 0;">ID Puerta: <strong>${t.shortCode}</strong></p>
+                <div style="margin:14px auto 0;background:#121212;border:1px solid #ffb5d7;border-radius:6px;padding:10px 16px;display:inline-block;">
+                  <div style="font-size:11px;color:#ffb5d7;text-transform:uppercase;letter-spacing:1px;">Código de Ingreso (4 dígitos)</div>
+                  <div style="font-family:monospace;font-size:24px;font-weight:bold;color:#ffffff;letter-spacing:4px;margin-top:2px;">${t.shortCode}</div>
+                </div>
               </div>
             </div>
           `;
@@ -72,7 +75,7 @@ export async function POST(req: Request) {
           <h1 style="color:#ffb5d7;font-size:28px;margin-bottom:8px;">¡Tus entradas QR para ${eventTitle}!</h1>
           <p style="color:#cccccc;font-size:14px;line-height:1.6;">
             Hola <strong>${buyerName}</strong>, tu orden <strong>${orderCode}</strong> fue autorizada por <strong>MAS30</strong>.
-            Presentá cada código QR individual desde tu celular en la puerta del evento junto con tu DNI físico.
+            En la puerta del evento podés presentar cualquiera de los dos: el <strong>código QR</strong> o tu <strong>código alfanumérico de 4 dígitos</strong>.
           </p>
           <div style="margin:24px 0;">
             ${ticketsHtml}

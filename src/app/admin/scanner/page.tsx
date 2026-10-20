@@ -396,15 +396,15 @@ export default function DoorQRScannerPage() {
                 className="space-y-2 pt-2 border-t border-white/10"
               >
                 <label className="block text-xs text-[#8a8a8a]">
-                  Validar por ID de Puerta o cadena QR:
+                  Validar por código alfanumérico de 4 dígitos o cadena QR:
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={manualInput}
-                    onChange={(e) => setManualInput(e.target.value)}
-                    placeholder="Ej: M30-8492-01"
-                    className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm font-mono text-white"
+                    onChange={(e) => setManualInput(e.target.value.toUpperCase())}
+                    placeholder="Ej: A9F3"
+                    className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm font-mono uppercase tracking-wider text-white"
                   />
                   <button
                     type="submit"

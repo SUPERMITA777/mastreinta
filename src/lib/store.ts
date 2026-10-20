@@ -858,15 +858,20 @@ export async function approveOrderAndGenerateQRs(
     return { order: approvedOrder, generatedTickets: alreadyForOrder };
   }
 
-  const numberPart = target.orderCode.replace("MAS30-", "");
+  const usedCodes = new Set(
+    existingTickets.map((t) => (t.shortCode || "").toUpperCase())
+  );
   const newTickets: TicketQR[] = Array.from(
     { length: target.quantity },
     (_, idx) => {
       const ticketNumber = idx + 1;
-      const paddedNum = String(ticketNumber).padStart(2, "0");
-      const token = generateRandomHexToken(6);
-      const qrCode = `MAS30|TKT|${target.orderCode}|${ticketNumber}|${token}`;
-      const shortCode = `M30-${numberPart}-${paddedNum}`;
+      let code4 = generateRandomHexToken(4);
+      while (usedCodes.has(code4)) {
+        code4 = generateRandomHexToken(4);
+      }
+      usedCodes.add(code4);
+      const qrCode = `MAS30|TKT|${code4}|${target.orderCode}|${ticketNumber}`;
+      const shortCode = code4;
       const attendee = target.attendees?.[idx] || {
         name:
           idx === 0
@@ -1074,15 +1079,21 @@ export async function validateAndScanQR(
   rawInput: string,
   operatorName = "Puerta Principal MAS30"
 ): Promise<ScanValidationResult> {
-  const clean = rawInput.trim();
+  const clean = rawInput.trim().toUpperCase();
   const tickets = getTickets();
 
-  const match = tickets.find(
-    (t) =>
-      t.qrCode.toUpperCase() === clean.toUpperCase() ||
-      t.shortCode.toUpperCase() === clean.toUpperCase() ||
-      t.id.toUpperCase() === clean.toUpperCase()
-  );
+  const match = tickets.find((t) => {
+    const qrUpper = (t.qrCode || "").toUpperCase();
+    const shortUpper = (t.shortCode || "").toUpperCase();
+    const idUpper = (t.id || "").toUpperCase();
+    const qrParts = qrUpper.split("|");
+    return (
+      qrUpper === clean ||
+      shortUpper === clean ||
+      idUpper === clean ||
+      (clean.length === 4 && qrParts.includes(clean))
+    );
+  });
 
   if (!match) {
     const pendingOrder = getOrders().find(

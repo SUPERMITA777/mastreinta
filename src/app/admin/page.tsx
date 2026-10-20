@@ -327,7 +327,7 @@ export default function AdminDashboardPage() {
 
   const handleCreateManualAccess = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualName.trim() || !manualDni.trim()) return;
+    if (!manualName.trim()) return;
     const { order } = await createManualAdminAccess(
       {
         eventId: manualEventId,
@@ -1022,12 +1022,24 @@ export default function AdminDashboardPage() {
                   (t) => t.orderCode === order.orderCode
                 );
                 const isExpanded = expandedOrderCode === order.orderCode;
+                const codesListText = orderTickets
+                  .map(
+                    (t, idx) =>
+                      `• Entrada #${idx + 1} (${t.holderName}): *${t.shortCode}*`
+                  )
+                  .join("\n");
                 const waUrl = `https://wa.me/${order.buyerPhone.replace(
                   /[^0-9]/g,
                   ""
                 )}?text=${encodeURIComponent(
-                  `¡Hola ${order.buyerName}! Tu transferencia para *${order.eventTitle}* fue autorizada por MAS30. Acá tenés tus *${order.quantity} entradas con código QR individual* para mostrar en puerta: ${
-                    typeof window !== "undefined" ? window.location.origin : ""
+                  `¡Hola ${order.buyerName}! Tu entrada para *${
+                    order.eventTitle
+                  }* (${
+                    order.eventDateLabel
+                  }) fue autorizada.\n\n🔑 *Código(s) de ingreso en puerta (4 dígitos):*\n${codesListText}\n\n📲 También podés ver y descargar tu código QR en:\n${
+                    typeof window !== "undefined"
+                      ? window.location.origin
+                      : "https://mastreinta.vercel.app"
                   }/mi-entrada/${order.orderCode}`
                 )}`;
 
@@ -1149,22 +1161,27 @@ export default function AdminDashboardPage() {
                               className="px-3.5 py-2 rounded-[3px] bg-soft-pink text-[#1c1c1c] text-xs font-medium flex items-center gap-1.5"
                             >
                               <MessageCircle className="w-4 h-4" />
-                              Enviar QRs por WhatsApp
+                              Enviar Código 4 Dígitos por WhatsApp
                             </a>
 
                             <a
                               href={`mailto:${order.buyerEmail}?subject=${encodeURIComponent(
-                                `Tus Entradas QR para ${order.eventTitle} (${order.orderCode}) · MAS30`
+                                `Tus Entradas QR y Código de Ingreso para ${order.eventTitle} (${order.orderCode})`
                               )}&body=${encodeURIComponent(
-                                `¡Hola ${order.buyerName}!\n\nTu pago para ${order.eventTitle} (${order.eventDateLabel}) fue autorizado por MAS30.\n\nPodés ver y descargar tus ${order.quantity} entradas con código QR individual en este link:\n${
+                                `¡Hola ${order.buyerName}!\n\nTu pago para ${order.eventTitle} (${order.eventDateLabel}) fue autorizado.\n\nTus códigos alfanuméricos de 4 dígitos para validar en puerta:\n${orderTickets
+                                  .map(
+                                    (t, idx) =>
+                                      `- Entrada #${idx + 1} (${t.holderName}): ${t.shortCode}`
+                                  )
+                                  .join("\n")}\n\nPodés ver y descargar tus ${order.quantity} códigos QR junto con tu código de 4 dígitos en este link:\n${
                                   typeof window !== "undefined"
                                     ? window.location.origin
                                     : "https://mastreinta.vercel.app"
-                                }/mi-entrada/${order.orderCode}\n\n¡Nos vemos en la pista!\nMAS30 Eventos`
+                                }/mi-entrada/${order.orderCode}\n\nAmbos (el QR o el código de 4 dígitos) sirven para ingresar en puerta.`
                               )}`}
                               className="px-3.5 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5"
                             >
-                              Enviar por Email
+                              Enviar QR + Código por Email
                             </a>
 
                             <Link
@@ -2946,24 +2963,14 @@ export default function AdminDashboardPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <input
-                  type="text"
-                  required
-                  value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
-                  placeholder="Nombre del Invitado *"
-                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                />
-                <input
-                  type="text"
-                  required
-                  value={manualDni}
-                  onChange={(e) => setManualDni(e.target.value)}
-                  placeholder="DNI *"
-                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                />
-              </div>
+              <input
+                type="text"
+                required
+                value={manualName}
+                onChange={(e) => setManualName(e.target.value)}
+                placeholder="Nombre del Invitado *"
+                className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+              />
 
               <input
                 type="text"
