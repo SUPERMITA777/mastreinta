@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --dark-background: #121212;
+  --bresh: #da0078;
+  --soft-pink: #ffb5d7;
+  --card-dark: #1c1c1c;
+  --card-active: #353535;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #121212;
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+.bg-dark-background {
+  background-color: #121212;
+}
+
+.bg-bresh {
+  background-color: #da0078;
+}
+
+.bg-soft-pink {
+  background-color: #ffb5d7;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 1284px;
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
