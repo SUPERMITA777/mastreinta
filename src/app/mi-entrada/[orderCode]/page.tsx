@@ -161,7 +161,9 @@ export default function MyOrderTicketsPage() {
               <p className="text-sm text-[#8a8a8a]">
                 Titular: <strong className="text-white">{order.buyerName}</strong>
                 {order.buyerDni ? ` (DNI ${order.buyerDni})` : ""} ·{" "}
-                {order.quantity}x {order.tierName} · Total:{" "}
+                {order.quantity}x {order.tierName} (
+                {order.totalQrCount || order.quantity} QR
+                {(order.totalQrCount || order.quantity) > 1 ? "s" : ""}) · Total:{" "}
                 <strong className="text-[#ffb5d7]">
                   {formatARS(order.totalAmount)}
                 </strong>
@@ -187,7 +189,7 @@ export default function MyOrderTicketsPage() {
                 </p>
                 <p className="text-xs text-[#8a8a8a]">
                   En cuanto el administrador autorice el pago en el Panel Admin, aparecerán acá tus{" "}
-                  {order.quantity} códigos QR individuales.
+                  {order.totalQrCount || order.quantity} códigos QR individuales.
                 </p>
               </div>
               <button
@@ -198,7 +200,7 @@ export default function MyOrderTicketsPage() {
               >
                 {approvingDemo
                   ? "Generando..."
-                  : `Simular Aprobación Admin (${order.quantity} QRs)`}
+                  : `Simular Aprobación Admin (${order.totalQrCount || order.quantity} QRs)`}
               </button>
             </div>
           )}

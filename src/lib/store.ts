@@ -720,11 +720,13 @@ export async function createTransferOrder(input: {
   const tier =
     input.event.ticketTiers.find((t) => t.id === input.tierId) ||
     input.event.ticketTiers[0];
+  const qrCountPerUnit = Math.max(1, Number(tier.qrCount) || 1);
+  const totalQrCount = input.quantity * qrCountPerUnit;
   const randomDigits = Math.floor(1000 + Math.random() * 9000);
   const orderCode = `MAS30-${randomDigits}`;
 
   const normalizedAttendees: OrderAttendeeInput[] = Array.from(
-    { length: input.quantity },
+    { length: totalQrCount },
     (_, idx) => {
       const provided = input.attendees[idx];
       if (provided && provided.name.trim()) {
@@ -737,7 +739,7 @@ export async function createTransferOrder(input: {
         name:
           idx === 0
             ? input.buyerName
-            : `${input.buyerName} (Invitado #${idx + 1})`,
+            : `${input.buyerName} (Acceso #${idx + 1})`,
         dni: input.buyerDni,
       };
     }
@@ -760,6 +762,8 @@ export async function createTransferOrder(input: {
     tierName: tier.name,
     unitPrice: tier.price,
     quantity: input.quantity,
+    qrCountPerUnit,
+    totalQrCount,
     totalAmount: tier.price * input.quantity,
     transferSender: input.transferSender,
     transferReference: input.transferReference,
@@ -858,11 +862,25 @@ export async function approveOrderAndGenerateQRs(
     return { order: approvedOrder, generatedTickets: alreadyForOrder };
   }
 
+  const events = getEvents();
+  const targetEvent = events.find((ev) => ev.id === target.eventId);
+  const targetTier = targetEvent?.ticketTiers.find(
+    (t) => t.id === target.tierId
+  );
+  const qrCountPerUnit = Math.max(
+    1,
+    Number(target.qrCountPerUnit ?? targetTier?.qrCount) || 1
+  );
+  const totalQRsToGenerate = Math.max(
+    1,
+    Number(target.totalQrCount) || target.quantity * qrCountPerUnit
+  );
+
   const usedCodes = new Set(
     existingTickets.map((t) => (t.shortCode || "").toUpperCase())
   );
   const newTickets: TicketQR[] = Array.from(
-    { length: target.quantity },
+    { length: totalQRsToGenerate },
     (_, idx) => {
       const ticketNumber = idx + 1;
       let code4 = generateRandomHexToken(4);
@@ -876,7 +894,7 @@ export async function approveOrderAndGenerateQRs(
         name:
           idx === 0
             ? target.buyerName
-            : `${target.buyerName} (Entrada #${ticketNumber})`,
+            : `${target.buyerName} (Acceso #${ticketNumber})`,
         dni: target.buyerDni,
       };
 
@@ -896,8 +914,8 @@ export async function approveOrderAndGenerateQRs(
         holderDni: attendee.dni,
         buyerPhone: target.buyerPhone,
         ticketNumber,
-        totalInOrder: target.quantity,
-        unitPrice: target.unitPrice,
+        totalInOrder: totalQRsToGenerate,
+        unitPrice: Math.round(target.totalAmount / totalQRsToGenerate),
         generatedByUsername: currentAdmin.username,
         generatedByName: currentAdmin.fullName,
         status: "VALIDO",
@@ -905,8 +923,6 @@ export async function approveOrderAndGenerateQRs(
       };
     }
   );
-
-  const events = getEvents();
   const updatedEvents = events.map((ev) => {
     if (ev.id !== target.eventId) return ev;
     return {
@@ -987,6 +1003,9 @@ export async function createManualAdminAccess(
     fullName: "Administrador General MAS30",
   };
 
+  const qrCountPerUnit = Math.max(1, Number(tier.qrCount) || 1);
+  const totalQRs = input.quantity * qrCountPerUnit;
+
   const createdOrder = await createTransferOrder({
     event,
     tierId: tier.id,
@@ -1002,11 +1021,11 @@ export async function createManualAdminAccess(
     notes: input.isCourtesy
       ? `Cortesía sin cargo emitida por ${currentAdmin.fullName} (@${currentAdmin.username})`
       : `Venta directa cobrada y emitida por ${currentAdmin.fullName} (@${currentAdmin.username})`,
-    attendees: Array.from({ length: input.quantity }, (_, idx) => ({
+    attendees: Array.from({ length: totalQRs }, (_, idx) => ({
       name:
         idx === 0
           ? input.holderName
-          : `${input.holderName} (Invitado #${idx + 1})`,
+          : `${input.holderName} (Acceso #${idx + 1})`,
       dni: input.holderDni,
     })),
   });

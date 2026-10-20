@@ -98,8 +98,13 @@ export default function EventDetailPage() {
   }, [slug, selectedTierId]);
 
   useEffect(() => {
+    const tier =
+      event?.ticketTiers.find((t) => t.id === selectedTierId) ||
+      event?.ticketTiers[0];
+    const perUnit = Math.max(1, Number(tier?.qrCount) || 1);
+    const total = quantity * perUnit;
     setAttendees((prev) =>
-      Array.from({ length: quantity }, (_, idx) => {
+      Array.from({ length: total }, (_, idx) => {
         if (idx === 0) {
           return {
             name: prev[0]?.name || buyerName,
@@ -109,7 +114,7 @@ export default function EventDetailPage() {
         return prev[idx] || { name: "", dni: "" };
       })
     );
-  }, [quantity, buyerName, buyerDni]);
+  }, [quantity, selectedTierId, event, buyerName, buyerDni]);
 
   if (!event) {
     return (
@@ -128,6 +133,8 @@ export default function EventDetailPage() {
   const selectedTier =
     event.ticketTiers.find((t) => t.id === selectedTierId) ||
     event.ticketTiers[0];
+  const qrCountPerUnit = Math.max(1, Number(selectedTier?.qrCount) || 1);
+  const totalQRs = quantity * qrCountPerUnit;
   const totalAmount = (selectedTier?.price || 0) * quantity;
 
   const handleAttendeeChange = (
@@ -453,7 +460,9 @@ export default function EventDetailPage() {
                     2. Cantidad de Entradas
                   </span>
                   <span className="text-xs text-[#8a8a8a]">
-                    Cada entrada genera su propio código QR personal
+                    {qrCountPerUnit > 1
+                      ? `Cada unidad incluye ${qrCountPerUnit} QRs (Total: ${totalQRs} códigos QR)`
+                      : "Cada entrada genera su propio código QR personal"}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
@@ -584,11 +593,11 @@ export default function EventDetailPage() {
                   />
                 </div>
 
-                {quantity > 1 && (
+                {totalQRs > 1 && (
                   <div className="p-3.5 rounded-md bg-[#121212] border border-[#2a2a2a] space-y-2">
                     <p className="text-xs text-white/80 flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                      Nombres para cada QR individual ({quantity} entradas):
+                      Nombres para cada QR individual ({totalQRs} accesos):
                     </p>
                     {attendees.map((att, idx) => (
                       <div key={idx}>
@@ -641,7 +650,7 @@ export default function EventDetailPage() {
                 >
                   {submittingOrder
                     ? "Registrando..."
-                    : `Informar Transferencia (${formatARS(totalAmount)}) y Solicitar ${quantity} QR`}
+                    : `Informar Transferencia (${formatARS(totalAmount)}) y Solicitar ${totalQRs} QR${totalQRs > 1 ? "s" : ""}`}
                 </button>
               </form>
             </div>

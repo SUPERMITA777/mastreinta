@@ -1021,6 +1021,19 @@ export default function AdminDashboardPage() {
                 const orderTickets = tickets.filter(
                   (t) => t.orderCode === order.orderCode
                 );
+                const orderEvent = events.find((e) => e.id === order.eventId);
+                const orderTier = orderEvent?.ticketTiers.find(
+                  (t) => t.id === order.tierId
+                );
+                const orderTotalQRs = Math.max(
+                  1,
+                  Number(order.totalQrCount) ||
+                    order.quantity *
+                      Math.max(
+                        1,
+                        Number(order.qrCountPerUnit ?? orderTier?.qrCount) || 1
+                      )
+                );
                 const isExpanded = expandedOrderCode === order.orderCode;
                 const codesListText = orderTickets
                   .map(
@@ -1094,7 +1107,8 @@ export default function AdminDashboardPage() {
                           <span>
                             Tickets:{" "}
                             <strong className="text-white">
-                              {order.quantity}x {order.tierName}
+                              {order.quantity}x {order.tierName} (
+                              {orderTotalQRs} QR{orderTotalQRs > 1 ? "s" : ""})
                             </strong>
                           </span>
                           <span>
@@ -1122,7 +1136,8 @@ export default function AdminDashboardPage() {
                               }
                               className="px-4 py-2.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-xs cursor-pointer transition-all"
                             >
-                              Autorizar Pago y Crear {order.quantity} QRs
+                              Autorizar Pago y Crear {orderTotalQRs} QR
+                              {orderTotalQRs > 1 ? "s" : ""}
                             </button>
                             <button
                               type="button"
@@ -2055,6 +2070,7 @@ export default function AdminDashboardPage() {
                             price: 25000,
                             stock: 100,
                             sold: 0,
+                            qrCount: 1,
                             includes: ["Acceso QR Individual"],
                           },
                         ])
@@ -2070,52 +2086,95 @@ export default function AdminDashboardPage() {
                       key={tier.id}
                       className="p-3 rounded-md bg-[#121212] space-y-2"
                     >
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        <input
-                          type="text"
-                          value={tier.name}
-                          onChange={(e) =>
-                            setEvTiers((prev) =>
-                              prev.map((item, i) =>
-                                i === idx
-                                  ? { ...item, name: e.target.value }
-                                  : item
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                        <div className="sm:col-span-5">
+                          <span className="block text-[10px] text-[#8a8a8a] mb-0.5">
+                            Nombre de la Entrada / Tanda
+                          </span>
+                          <input
+                            type="text"
+                            value={tier.name}
+                            onChange={(e) =>
+                              setEvTiers((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? { ...item, name: e.target.value }
+                                    : item
+                                )
                               )
-                            )
-                          }
-                          placeholder="Nombre de la tanda"
-                          className="sm:col-span-5 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                        />
-                        <input
-                          type="number"
-                          value={tier.price}
-                          onChange={(e) =>
-                            setEvTiers((prev) =>
-                              prev.map((item, i) =>
-                                i === idx
-                                  ? { ...item, price: Number(e.target.value) }
-                                  : item
+                            }
+                            placeholder="Ej: MESA (4 INGRESOS)"
+                            className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="block text-[10px] text-[#8a8a8a] mb-0.5">
+                            Valor ($)
+                          </span>
+                          <input
+                            type="number"
+                            value={tier.price}
+                            onChange={(e) =>
+                              setEvTiers((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? { ...item, price: Number(e.target.value) }
+                                    : item
+                                )
                               )
-                            )
-                          }
-                          placeholder="Precio ($)"
-                          className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                        />
-                        <input
-                          type="number"
-                          value={tier.stock}
-                          onChange={(e) =>
-                            setEvTiers((prev) =>
-                              prev.map((item, i) =>
-                                i === idx
-                                  ? { ...item, stock: Number(e.target.value) }
-                                  : item
+                            }
+                            placeholder="Precio ($)"
+                            className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="block text-[10px] text-[#8a8a8a] mb-0.5">
+                            Cupo / Stock
+                          </span>
+                          <input
+                            type="number"
+                            value={tier.stock}
+                            onChange={(e) =>
+                              setEvTiers((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? { ...item, stock: Number(e.target.value) }
+                                    : item
+                                )
                               )
-                            )
-                          }
-                          placeholder="Cupo"
-                          className="sm:col-span-3 px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
-                        />
+                            }
+                            placeholder="Cupo"
+                            className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="block text-[10px] text-[#ffb5d7] mb-0.5">
+                            Cant. QR / Accesos
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={tier.qrCount ?? 1}
+                            onChange={(e) =>
+                              setEvTiers((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? {
+                                        ...item,
+                                        qrCount: Math.max(
+                                          1,
+                                          Number(e.target.value) || 1
+                                        ),
+                                      }
+                                    : item
+                                )
+                              )
+                            }
+                            placeholder="QRs (ej: 4)"
+                            className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] border border-[#ffb5d7]/40 text-xs font-medium text-white"
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() =>
@@ -2123,7 +2182,7 @@ export default function AdminDashboardPage() {
                               prev.filter((_, i) => i !== idx)
                             )
                           }
-                          className="sm:col-span-1 text-white/50 hover:text-white flex justify-center cursor-pointer"
+                          className="sm:col-span-1 py-1.5 text-white/50 hover:text-white flex justify-center cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

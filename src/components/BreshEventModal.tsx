@@ -93,8 +93,13 @@ export default function BreshEventModal({
   }, [event]);
 
   useEffect(() => {
+    const tier =
+      event?.ticketTiers.find((t) => t.id === selectedTierId) ||
+      event?.ticketTiers[0];
+    const perUnit = Math.max(1, Number(tier?.qrCount) || 1);
+    const total = quantity * perUnit;
     setAttendees((prev) =>
-      Array.from({ length: quantity }, (_, idx) => {
+      Array.from({ length: total }, (_, idx) => {
         if (idx === 0) {
           return {
             name: prev[0]?.name || buyerName,
@@ -104,13 +109,15 @@ export default function BreshEventModal({
         return prev[idx] || { name: "", dni: "" };
       })
     );
-  }, [quantity, buyerName, buyerDni]);
+  }, [quantity, selectedTierId, event, buyerName, buyerDni]);
 
   if (!event) return null;
 
   const selectedTier =
     event.ticketTiers.find((t) => t.id === selectedTierId) ||
     event.ticketTiers[0];
+  const qrCountPerUnit = Math.max(1, Number(selectedTier?.qrCount) || 1);
+  const totalQRs = quantity * qrCountPerUnit;
   const totalAmount = (selectedTier?.price || 0) * quantity;
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
@@ -401,7 +408,9 @@ export default function BreshEventModal({
                         Cantidad de Entradas
                       </span>
                       <span className="text-xs text-white/60">
-                        Se genera 1 código QR individual por cada entrada
+                        {qrCountPerUnit > 1
+                          ? `Cada unidad incluye ${qrCountPerUnit} QRs (Total: ${totalQRs} códigos QR)`
+                          : "Se genera 1 código QR individual por cada entrada"}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
@@ -525,7 +534,7 @@ export default function BreshEventModal({
                     >
                       {submitting
                         ? "Procesando..."
-                        : `Confirmar Reserva (${formatARS(totalAmount)}) y Solicitar ${quantity} QR`}
+                        : `Confirmar Reserva (${formatARS(totalAmount)}) y Solicitar ${totalQRs} QR${totalQRs > 1 ? "s" : ""}`}
                     </button>
                   </form>
                 </div>

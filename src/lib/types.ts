@@ -5,6 +5,7 @@ export interface TicketTier {
   price: number;
   stock: number;
   sold: number;
+  qrCount?: number; // Cantidad de códigos QR / accesos que otorga 1 unidad de esta entrada (por defecto 1, ej: Mesa = 4)
   includes: string[];
 }
 
@@ -85,6 +86,8 @@ export interface OrderItem {
   tierName: string;
   unitPrice: number;
   quantity: number;
+  qrCountPerUnit?: number;
+  totalQrCount?: number;
   totalAmount: number;
   transferSender: string;
   transferReference: string;
