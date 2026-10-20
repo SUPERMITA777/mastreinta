@@ -516,9 +516,94 @@ function notifyStoreUpdate() {
   }
 }
 
+let cloudSyncInitialized = false;
+let isApplyingCloudState = false;
+
+export async function pushToCloudStore(
+  partial?: Record<string, unknown>
+): Promise<boolean> {
+  if (typeof window === "undefined" || isApplyingCloudState) return false;
+  try {
+    const payload = partial || {
+      events: getEvents(),
+      orders: getOrders(),
+      tickets: getTickets(),
+      inquiries: getInquiries(),
+      settings: getBankSettings(),
+      adminUsers: getAdminUsers(),
+    };
+    const res = await fetch("/api/cloud-store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function syncFromCloudStore(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetch(`/api/cloud-store?t=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!data.exists || !data.state) {
+      // Si la nube aún está vacía, subimos el estado actual de esta PC a Supabase
+      await pushToCloudStore();
+      return;
+    }
+
+    const st = data.state;
+    isApplyingCloudState = true;
+    let changed = false;
+
+    const applyKey = (storageKey: string, val: unknown) => {
+      if (val === undefined || val === null) return;
+      const nextStr = JSON.stringify(val);
+      const currStr = localStorage.getItem(storageKey);
+      if (currStr !== nextStr) {
+        localStorage.setItem(storageKey, nextStr);
+        changed = true;
+      }
+    };
+
+    applyKey(STORAGE_KEYS.EVENTS, st.events);
+    applyKey(STORAGE_KEYS.ORDERS, st.orders);
+    applyKey(STORAGE_KEYS.TICKETS, st.tickets);
+    applyKey(STORAGE_KEYS.INQUIRIES, st.inquiries);
+    applyKey(STORAGE_KEYS.SETTINGS, st.settings);
+    applyKey(STORAGE_KEYS.ADMIN_USERS, st.adminUsers);
+
+    isApplyingCloudState = false;
+    if (changed) {
+      notifyStoreUpdate();
+    }
+  } catch {
+    isApplyingCloudState = false;
+  }
+}
+
+function ensureCloudSyncStarted() {
+  if (typeof window === "undefined" || cloudSyncInitialized) return;
+  cloudSyncInitialized = true;
+  syncFromCloudStore();
+  window.addEventListener("focus", () => {
+    syncFromCloudStore();
+  });
+  setInterval(() => {
+    syncFromCloudStore();
+  }, 10000);
+}
+
 export function getEvents(): EventItem[] {
   if (typeof window === "undefined") return INITIAL_EVENTS;
   cleanLegacyStorage();
+  ensureCloudSyncStarted();
   const raw = localStorage.getItem(STORAGE_KEYS.EVENTS);
   if (!raw) {
     localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(INITIAL_EVENTS));
@@ -569,6 +654,7 @@ export function saveEvents(events: EventItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
   notifyStoreUpdate();
+  void pushToCloudStore({ events });
 }
 
 export async function upsertEvent(event: EventItem): Promise<EventItem[]> {
@@ -653,6 +739,7 @@ export function saveOrders(orders: OrderItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
   notifyStoreUpdate();
+  void pushToCloudStore({ orders });
 }
 
 export function getTickets(): TicketQR[] {
@@ -679,6 +766,7 @@ export function saveTickets(tickets: TicketQR[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(tickets));
   notifyStoreUpdate();
+  void pushToCloudStore({ tickets });
 }
 
 export async function createTransferOrder(input: {
@@ -1136,6 +1224,7 @@ export function saveInquiries(items: InquiryItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.INQUIRIES, JSON.stringify(items));
   notifyStoreUpdate();
+  void pushToCloudStore({ inquiries: items });
 }
 
 export async function createInquiry(input: {
@@ -1291,6 +1380,7 @@ export function saveBankSettings(settings: BankSettings): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   notifyStoreUpdate();
+  void pushToCloudStore({ settings });
 }
 
 export function getAdminUsers(): AdminUser[] {
@@ -1314,6 +1404,7 @@ export function saveAdminUsers(users: AdminUser[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.ADMIN_USERS, JSON.stringify(users));
   notifyStoreUpdate();
+  void pushToCloudStore({ adminUsers: users });
 }
 
 export function upsertAdminUser(user: AdminUser): AdminUser[] {

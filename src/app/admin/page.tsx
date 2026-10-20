@@ -44,6 +44,7 @@ import {
   isEventVisiblePublicly,
   loginAdminUser,
   logoutAdminUser,
+  pushToCloudStore,
   rejectOrder,
   replyInquiry,
   saveBankSettings,
@@ -722,6 +723,22 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await pushToCloudStore();
+                if (ok) {
+                  alert(
+                    "¡Datos sincronizados con Supabase Cloud! Ya se ven los cambios en todos los celulares y dispositivos."
+                  );
+                }
+              }}
+              className="px-4 py-2.5 rounded-[3px] bg-[#1c1c1c] border border-[#ffb5d7]/40 text-[#ffb5d7] hover:bg-[#252525] font-medium text-xs flex items-center gap-2 cursor-pointer"
+            >
+              <Database className="w-4 h-4" />
+              Sincronizar PC con Celulares
+            </button>
+
             <button
               type="button"
               onClick={() => setShowManualModal(true)}
