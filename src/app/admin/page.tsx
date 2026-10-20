@@ -12,6 +12,7 @@ import {
   EyeOff,
   Lock,
   LogOut,
+  Mail,
   MessageCircle,
   Plus,
   QrCode,
@@ -192,6 +193,18 @@ export default function AdminDashboardPage() {
   const [faqSavedMsg, setFaqSavedMsg] = useState<string>("");
 
   const [configSaved, setConfigSaved] = useState(false);
+  const [emailConfigSaved, setEmailConfigSaved] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testEmailStatus, setTestEmailStatus] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+  const [sendingEmailOrderCode, setSendingEmailOrderCode] = useState<
+    string | null
+  >(null);
+  const [emailStatusByOrder, setEmailStatusByOrder] = useState<
+    Record<string, { ok: boolean; msg: string; missingCredentials?: boolean }>
+  >({});
   const [shareSaved, setShareSaved] = useState(false);
   const [shareUploading, setShareUploading] = useState(false);
 
@@ -290,6 +303,94 @@ export default function AdminDashboardPage() {
     (i) => i.status === "PENDIENTE"
   ).length;
 
+  const handleSendOrderEmail = async (
+    order: OrderItem,
+    orderTickets: TicketQR[]
+  ) => {
+    if (!order.buyerEmail || order.buyerEmail === "cortesia@mas30.com") {
+      setEmailStatusByOrder((prev) => ({
+        ...prev,
+        [order.orderCode]: {
+          ok: false,
+          msg: "Esta orden no tiene un email de comprador válido.",
+        },
+      }));
+      return;
+    }
+
+    const orderEvent = events.find((ev) => ev.id === order.eventId);
+    setSendingEmailOrderCode(order.orderCode);
+    setEmailStatusByOrder((prev) => ({
+      ...prev,
+      [order.orderCode]: {
+        ok: true,
+        msg: "Enviando email con Flyer + QRs...",
+      },
+    }));
+
+    try {
+      const res = await fetch("/api/send-tickets-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toEmail: order.buyerEmail,
+          buyerName: order.buyerName,
+          orderCode: order.orderCode,
+          eventId: order.eventId,
+          eventTitle: order.eventTitle,
+          eventDateLabel: order.eventDateLabel,
+          eventTime: order.eventTime,
+          eventVenue: order.eventVenue,
+          flyerUrl: orderEvent?.flyerUrl || "",
+          tickets: orderTickets,
+          smtpUser: bankSettings.smtpUser,
+          smtpPass: bankSettings.smtpPass,
+          smtpHost: bankSettings.smtpHost,
+          smtpPort: bankSettings.smtpPort,
+          resendApiKey: bankSettings.resendApiKey,
+          resendFromEmail: bankSettings.resendFromEmail,
+          originUrl:
+            typeof window !== "undefined"
+              ? window.location.origin
+              : "https://mastreinta.vercel.app",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setEmailStatusByOrder((prev) => ({
+          ...prev,
+          [order.orderCode]: {
+            ok: true,
+            msg: `✓ Email enviado con el Flyer y ${orderTickets.length} QR(s) a ${order.buyerEmail}`,
+          },
+        }));
+      } else {
+        setEmailStatusByOrder((prev) => ({
+          ...prev,
+          [order.orderCode]: {
+            ok: false,
+            missingCredentials: data.mode === "missing_credentials",
+            msg:
+              data.error ||
+              "No se pudo enviar el email. Verificá la configuración de correo.",
+          },
+        }));
+      }
+    } catch (err) {
+      setEmailStatusByOrder((prev) => ({
+        ...prev,
+        [order.orderCode]: {
+          ok: false,
+          msg: `Error de red al enviar email: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        },
+      }));
+    } finally {
+      setSendingEmailOrderCode(null);
+    }
+  };
+
   const handleApproveOrder = async (orderId: string, orderCode: string) => {
     const { order, generatedTickets } = await approveOrderAndGenerateQRs(
       orderId,
@@ -300,29 +401,8 @@ export default function AdminDashboardPage() {
     syncAll();
     setExpandedOrderCode(orderCode);
 
-    // Intenta enviar automáticamente los QRs por Email al comprador
-    try {
-      await fetch("/api/send-tickets-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          toEmail: order.buyerEmail,
-          buyerName: order.buyerName,
-          orderCode: order.orderCode,
-          eventTitle: order.eventTitle,
-          eventDateLabel: order.eventDateLabel,
-          eventTime: order.eventTime,
-          eventVenue: order.eventVenue,
-          tickets: generatedTickets,
-          originUrl:
-            typeof window !== "undefined"
-              ? window.location.origin
-              : "https://mastreinta.vercel.app",
-        }),
-      });
-    } catch {
-      // continua normalmente
-    }
+    // Envía automáticamente el Flyer + QRs + Códigos de 4 dígitos por Email al comprador
+    await handleSendOrderEmail(order, generatedTickets);
   };
 
   const handleCreateManualAccess = async (e: React.FormEvent) => {
@@ -1179,25 +1259,21 @@ export default function AdminDashboardPage() {
                               Enviar Código 4 Dígitos por WhatsApp
                             </a>
 
-                            <a
-                              href={`mailto:${order.buyerEmail}?subject=${encodeURIComponent(
-                                `Tus Entradas QR y Código de Ingreso para ${order.eventTitle} (${order.orderCode})`
-                              )}&body=${encodeURIComponent(
-                                `¡Hola ${order.buyerName}!\n\nTu pago para ${order.eventTitle} (${order.eventDateLabel}) fue autorizado.\n\nTus códigos alfanuméricos de 4 dígitos para validar en puerta:\n${orderTickets
-                                  .map(
-                                    (t, idx) =>
-                                      `- Entrada #${idx + 1} (${t.holderName}): ${t.shortCode}`
-                                  )
-                                  .join("\n")}\n\nPodés ver y descargar tus ${order.quantity} códigos QR junto con tu código de 4 dígitos en este link:\n${
-                                  typeof window !== "undefined"
-                                    ? window.location.origin
-                                    : "https://mastreinta.vercel.app"
-                                }/mi-entrada/${order.orderCode}\n\nAmbos (el QR o el código de 4 dígitos) sirven para ingresar en puerta.`
-                              )}`}
-                              className="px-3.5 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5"
+                            <button
+                              type="button"
+                              disabled={
+                                sendingEmailOrderCode === order.orderCode
+                              }
+                              onClick={() =>
+                                handleSendOrderEmail(order, orderTickets)
+                              }
+                              className="px-3.5 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                             >
-                              Enviar QR + Código por Email
-                            </a>
+                              <Mail className="w-4 h-4 text-[#ffb5d7]" />
+                              {sendingEmailOrderCode === order.orderCode
+                                ? "Enviando Email..."
+                                : "Enviar QR + Flyer por Email"}
+                            </button>
 
                             <Link
                               href={`/mi-entrada/${order.orderCode}`}
@@ -1222,6 +1298,28 @@ export default function AdminDashboardPage() {
                         </button>
                       </div>
                     </div>
+
+                    {emailStatusByOrder[order.orderCode] && (
+                      <div
+                        className={`p-3 rounded-md text-xs flex flex-wrap items-center justify-between gap-2 ${
+                          emailStatusByOrder[order.orderCode].ok
+                            ? "bg-[#121212] border border-[#ffb5d7]/40 text-[#ffb5d7]"
+                            : "bg-red-950/50 border border-red-500/40 text-red-200"
+                        }`}
+                      >
+                        <span>{emailStatusByOrder[order.orderCode].msg}</span>
+                        {emailStatusByOrder[order.orderCode]
+                          .missingCredentials && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("configuracion")}
+                            className="px-3 py-1 rounded bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer"
+                          >
+                            Ir a Configurar Correo
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {isExpanded && orderTickets.length > 0 && (
                       <div className="pt-4 border-t border-white/10 space-y-3">
@@ -2812,6 +2910,260 @@ export default function AdminDashboardPage() {
                 <code className="text-white">tickets</code>,{" "}
                 <code className="text-white">inquiries</code>).
               </p>
+            </div>
+
+            {/* CONFIGURACIÓN DE ENVÍO AUTOMÁTICO DE EMAILS (FLYER + QR) */}
+            <div className="lg:col-span-12 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5 border border-[#ffb5d7]/30">
+              <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                <Mail className="w-4 h-4" />
+                Envío Automático de Entradas por Email (Flyer + QRs + Código 4 Dígitos)
+              </div>
+              <h2 className="text-2xl font-normal text-white">
+                Correo Remitente para Enviar los QRs y el Flyer
+              </h2>
+              <p className="text-xs text-[#8a8a8a] leading-relaxed">
+                Para que el sistema envíe automáticamente por correo el{" "}
+                <strong className="text-white">Flyer del evento</strong>, las{" "}
+                <strong className="text-white">imágenes de los códigos QR</strong> y el{" "}
+                <strong className="text-white">código de 4 dígitos</strong> a cualquier comprador,
+                completá tu cuenta de{" "}
+                <strong className="text-[#ffb5d7]">Gmail con Contraseña de Aplicación</strong>{" "}
+                (recomendado, gratis y sin límites de dominio) o una clave de{" "}
+                <strong className="text-white">Resend API</strong>.
+              </p>
+
+              {emailConfigSaved && (
+                <div className="p-3 rounded bg-[#353535] text-xs text-[#ffb5d7]">
+                  ✓ Configuración de correo guardada en la nube.
+                </div>
+              )}
+
+              {testEmailStatus && (
+                <div
+                  className={`p-3 rounded text-xs ${
+                    testEmailStatus.ok
+                      ? "bg-[#121212] border border-[#ffb5d7]/50 text-[#ffb5d7]"
+                      : "bg-red-950/60 border border-red-500/40 text-red-200"
+                  }`}
+                >
+                  {testEmailStatus.msg}
+                </div>
+              )}
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveBankSettings(bankSettings);
+                  setEmailConfigSaved(true);
+                  setTimeout(() => setEmailConfigSaved(false), 4000);
+                }}
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* OPCIÓN 1: GMAIL / SMTP */}
+                  <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase text-[#ffb5d7]">
+                        Opción 1 (Recomendada) · Gmail / SMTP
+                      </span>
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[#353535] text-white/80">
+                        Envía a cualquier email
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Correo Gmail Remitente (ej: mas30eventos@gmail.com)
+                      </label>
+                      <input
+                        type="email"
+                        value={bankSettings.smtpUser || ""}
+                        onChange={(e) =>
+                          setBankSettings({
+                            ...bankSettings,
+                            smtpUser: e.target.value,
+                          })
+                        }
+                        placeholder="tucorreo@gmail.com"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Contraseña de Aplicación de Google (16 letras)
+                      </label>
+                      <input
+                        type="password"
+                        value={bankSettings.smtpPass || ""}
+                        onChange={(e) =>
+                          setBankSettings({
+                            ...bankSettings,
+                            smtpPass: e.target.value,
+                          })
+                        }
+                        placeholder="xxxx xxxx xxxx xxxx"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs font-mono text-white"
+                      />
+                      <p className="text-[11px] text-[#8a8a8a] mt-1.5 leading-relaxed">
+                        ¿Cómo obtenerla en 30 segundos? Entrá a{" "}
+                        <a
+                          href="https://myaccount.google.com/apppasswords"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#ffb5d7] underline"
+                        >
+                          myaccount.google.com/apppasswords
+                        </a>
+                        , creá una clave llamada <strong>MAS30</strong> y pegá las 16 letras acá.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* OPCIÓN 2: RESEND API */}
+                  <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase text-white/80">
+                        Opción 2 (Alternativa) · Resend API
+                      </span>
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[#353535] text-white/60">
+                        Opcional
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Resend API Key (re_...)
+                      </label>
+                      <input
+                        type="password"
+                        value={bankSettings.resendApiKey || ""}
+                        onChange={(e) =>
+                          setBankSettings({
+                            ...bankSettings,
+                            resendApiKey: e.target.value,
+                          })
+                        }
+                        placeholder="re_123456789..."
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Remitente Resend (From Email)
+                      </label>
+                      <input
+                        type="text"
+                        value={bankSettings.resendFromEmail || ""}
+                        onChange={(e) =>
+                          setBankSettings({
+                            ...bankSettings,
+                            resendFromEmail: e.target.value,
+                          })
+                        }
+                        placeholder="MAS30 Eventos <entradas@tudominio.com>"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="submit"
+                    className="px-6 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer"
+                  >
+                    Guardar Configuración de Correo
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={testingEmail}
+                    onClick={async () => {
+                      saveBankSettings(bankSettings);
+                      const testRecipient =
+                        bankSettings.smtpUser?.trim() ||
+                        prompt(
+                          "Ingresá el email donde querés recibir el correo de prueba con Flyer + QR:"
+                        ) ||
+                        "";
+                      if (!testRecipient) return;
+                      setTestingEmail(true);
+                      setTestEmailStatus(null);
+                      const sampleEvent = events[0] || INITIAL_EVENTS[0];
+                      try {
+                        const res = await fetch("/api/send-tickets-email", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            toEmail: testRecipient,
+                            buyerName: "Prueba Admin MAS30",
+                            orderCode: "MAS30-TEST",
+                            eventId: sampleEvent.id,
+                            eventTitle: sampleEvent.title,
+                            eventDateLabel: sampleEvent.dateLabel,
+                            eventTime: sampleEvent.time,
+                            eventVenue: sampleEvent.venueName,
+                            flyerUrl: sampleEvent.flyerUrl,
+                            tickets: [
+                              {
+                                ticketNumber: 1,
+                                totalInOrder: 1,
+                                holderName: "Invitado Prueba MAS30",
+                                holderDni: "",
+                                shortCode: "M30X",
+                                qrCode: "MAS30-TICKET|MAS30-TEST|1|M30X",
+                                tierName:
+                                  sampleEvent.ticketTiers[0]?.name ||
+                                  "Entrada General",
+                              },
+                            ],
+                            smtpUser: bankSettings.smtpUser,
+                            smtpPass: bankSettings.smtpPass,
+                            smtpHost: bankSettings.smtpHost,
+                            smtpPort: bankSettings.smtpPort,
+                            resendApiKey: bankSettings.resendApiKey,
+                            resendFromEmail: bankSettings.resendFromEmail,
+                            originUrl:
+                              typeof window !== "undefined"
+                                ? window.location.origin
+                                : "https://mastreinta.vercel.app",
+                          }),
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.ok) {
+                          setTestEmailStatus({
+                            ok: true,
+                            msg: `✓ ¡Correo de prueba con Flyer + QR enviado con éxito a ${testRecipient}! Revisá tu bandeja de entrada.`,
+                          });
+                        } else {
+                          setTestEmailStatus({
+                            ok: false,
+                            msg:
+                              data.error ||
+                              "No se pudo enviar el correo de prueba.",
+                          });
+                        }
+                      } catch (err) {
+                        setTestEmailStatus({
+                          ok: false,
+                          msg: `Error al probar envío: ${
+                            err instanceof Error ? err.message : String(err)
+                          }`,
+                        });
+                      } finally {
+                        setTestingEmail(false);
+                      }
+                    }}
+                    className="px-5 py-3 rounded-[3px] bg-[#353535] hover:bg-[#454545] text-white font-medium text-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {testingEmail
+                      ? "Enviando prueba..."
+                      : "Enviar Email de Prueba (con Flyer y QR)"}
+                  </button>
+                </div>
+              </form>
             </div>
 
             {/* VISTA PREVIA AL COMPARTIR EL LINK (WhatsApp / redes) */}

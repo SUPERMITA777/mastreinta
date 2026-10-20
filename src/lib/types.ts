@@ -156,4 +156,11 @@ export interface BankSettings {
   shareTitle?: string;
   shareDescription?: string;
   shareImageUrl?: string;
+  // Configuración de envío de Emails (Gmail / SMTP o Resend)
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  resendApiKey?: string;
+  resendFromEmail?: string;
 }
