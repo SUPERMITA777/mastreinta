@@ -229,7 +229,7 @@ export default function AdminDashboardPage() {
   ).length;
 
   const handleApproveOrder = async (orderId: string, orderCode: string) => {
-    await approveOrderAndGenerateQRs(
+    const { order, generatedTickets } = await approveOrderAndGenerateQRs(
       orderId,
       currentUser
         ? { username: currentUser.username, fullName: currentUser.fullName }
@@ -237,6 +237,30 @@ export default function AdminDashboardPage() {
     );
     syncAll();
     setExpandedOrderCode(orderCode);
+
+    // Intenta enviar automáticamente los QRs por Email al comprador
+    try {
+      await fetch("/api/send-tickets-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toEmail: order.buyerEmail,
+          buyerName: order.buyerName,
+          orderCode: order.orderCode,
+          eventTitle: order.eventTitle,
+          eventDateLabel: order.eventDateLabel,
+          eventTime: order.eventTime,
+          eventVenue: order.eventVenue,
+          tickets: generatedTickets,
+          originUrl:
+            typeof window !== "undefined"
+              ? window.location.origin
+              : "https://mastreinta.vercel.app",
+        }),
+      });
+    } catch {
+      // continua normalmente
+    }
   };
 
   const handleCreateManualAccess = async (e: React.FormEvent) => {
@@ -992,6 +1016,21 @@ export default function AdminDashboardPage() {
                             >
                               <MessageCircle className="w-4 h-4" />
                               Enviar QRs por WhatsApp
+                            </a>
+
+                            <a
+                              href={`mailto:${order.buyerEmail}?subject=${encodeURIComponent(
+                                `Tus Entradas QR para ${order.eventTitle} (${order.orderCode}) · MAS30`
+                              )}&body=${encodeURIComponent(
+                                `¡Hola ${order.buyerName}!\n\nTu pago para ${order.eventTitle} (${order.eventDateLabel}) fue autorizado por MAS30.\n\nPodés ver y descargar tus ${order.quantity} entradas con código QR individual en este link:\n${
+                                  typeof window !== "undefined"
+                                    ? window.location.origin
+                                    : "https://mastreinta.vercel.app"
+                                }/mi-entrada/${order.orderCode}\n\n¡Nos vemos en la pista!\nMAS30 Eventos`
+                              )}`}
+                              className="px-3.5 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5"
+                            >
+                              Enviar por Email
                             </a>
 
                             <Link
