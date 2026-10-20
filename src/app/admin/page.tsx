@@ -4,9 +4,12 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
+  Clock,
   Database,
   Download,
   ExternalLink,
+  Eye,
+  EyeOff,
   Lock,
   LogOut,
   MessageCircle,
@@ -38,11 +41,13 @@ import {
   INITIAL_ADMIN_USERS,
   INITIAL_EVENTS,
   INITIAL_SETTINGS,
+  isEventVisiblePublicly,
   loginAdminUser,
   logoutAdminUser,
   rejectOrder,
   replyInquiry,
   saveBankSettings,
+  toggleEventHidden,
   upsertAdminUser,
   upsertEvent,
   upsertInquiry,
@@ -136,6 +141,14 @@ export default function AdminDashboardPage() {
   const [evBadge, setEvBadge] = useState("Preventa Activa");
   const [evDressCode, setEvDressCode] = useState("Elegante Nocturno");
   const [evDescription, setEvDescription] = useState("");
+  const [evHidden, setEvHidden] = useState(false);
+  const [evPublishAt, setEvPublishAt] = useState("");
+  const [evOrganizerWhatsapp, setEvOrganizerWhatsapp] =
+    useState("+5491155553030");
+  const [evInstagramUrl, setEvInstagramUrl] = useState(
+    "https://instagram.com/mas30.eventos"
+  );
+  const [evTiktokUrl, setEvTiktokUrl] = useState("");
   const [evLineupText, setEvLineupText] = useState(
     "DJ Residente MAS30\nInvitado Especial Retro Set"
   );
@@ -365,6 +378,12 @@ export default function AdminDashboardPage() {
         .filter(Boolean),
       ticketTiers: evTiers,
       status: "ACTIVO",
+      hidden: evHidden,
+      publishAt: evPublishAt.trim() || undefined,
+      organizerWhatsapp: evOrganizerWhatsapp.trim() || "+5491155553030",
+      instagramUrl:
+        evInstagramUrl.trim() || "https://instagram.com/mas30.eventos",
+      tiktokUrl: evTiktokUrl.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
 
@@ -376,6 +395,8 @@ export default function AdminDashboardPage() {
     setEvVenueName("");
     setEvVenueAddress("");
     setEvDescription("");
+    setEvHidden(false);
+    setEvPublishAt("");
     setEventSavedMsg(true);
     setTimeout(() => setEventSavedMsg(false), 3500);
   };
@@ -396,6 +417,13 @@ export default function AdminDashboardPage() {
     setEvBadge(ev.badge);
     setEvDressCode(ev.dressCode);
     setEvDescription(ev.description);
+    setEvHidden(Boolean(ev.hidden));
+    setEvPublishAt(ev.publishAt || "");
+    setEvOrganizerWhatsapp(ev.organizerWhatsapp || "+5491155553030");
+    setEvInstagramUrl(
+      ev.instagramUrl || "https://instagram.com/mas30.eventos"
+    );
+    setEvTiktokUrl(ev.tiktokUrl || "");
     setEvLineupText(ev.lineup.join("\n"));
     setEvTiers(ev.ticketTiers);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1546,6 +1574,88 @@ export default function AdminDashboardPage() {
                   />
                 </div>
 
+                {/* Visibilidad, Ocultar y Fecha de Lanzamiento Automático */}
+                <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
+                  <span className="text-xs uppercase text-[#ffb5d7] block">
+                    Visibilidad & Lanzamiento Automático
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Fecha y Hora de Lanzamiento (Opcional)
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={evPublishAt}
+                        onChange={(e) => setEvPublishAt(e.target.value)}
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                      <span className="text-[10px] text-[#8a8a8a] block mt-1">
+                        Si elegís una fecha futura, se publicará solo cuando
+                        llegue ese día y hora.
+                      </span>
+                    </div>
+
+                    <label className="flex items-center gap-2.5 text-xs text-white cursor-pointer p-3 rounded bg-[#1c1c1c] border border-[#353535]">
+                      <input
+                        type="checkbox"
+                        checked={evHidden}
+                        onChange={(e) => setEvHidden(e.target.checked)}
+                      />
+                      <span>
+                        Ocultar evento manualmente de la página pública
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* WhatsApp del Organizador y Redes Sociales del Evento */}
+                <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
+                  <span className="text-xs uppercase text-[#ffb5d7] block">
+                    WhatsApp del Organizador & Redes Sociales del Evento
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        WhatsApp Organizador
+                      </label>
+                      <input
+                        type="text"
+                        value={evOrganizerWhatsapp}
+                        onChange={(e) =>
+                          setEvOrganizerWhatsapp(e.target.value)
+                        }
+                        placeholder="+5491155553030"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Link Instagram del Evento
+                      </label>
+                      <input
+                        type="text"
+                        value={evInstagramUrl}
+                        onChange={(e) => setEvInstagramUrl(e.target.value)}
+                        placeholder="https://instagram.com/mas30.eventos"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        TikTok / Otra Red (Opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={evTiktokUrl}
+                        onChange={(e) => setEvTiktokUrl(e.target.value)}
+                        placeholder="https://tiktok.com/@mas30"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Tandas de Precios */}
                 <div className="space-y-2.5 pt-2 border-t border-white/10">
                   <div className="flex items-center justify-between">
@@ -1645,49 +1755,121 @@ export default function AdminDashboardPage() {
 
             <div className="lg:col-span-5 space-y-4">
               <h3 className="text-lg font-normal text-white">
-                Eventos Activos ({events.length})
+                Eventos Cargados ({events.length})
               </h3>
-              {events.map((ev) => (
-                <div
-                  key={ev.id}
-                  className="p-4 rounded-lg bg-[#1c1c1c] flex items-center gap-4"
-                >
-                  <div className="w-16 h-16 rounded overflow-hidden shrink-0">
-                    <BreshPosterArt event={ev} variant="square" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-[#8a8a8a]">{ev.dateLabel}</p>
-                    <h4 className="text-base font-medium text-white truncate">
-                      {ev.title}
-                    </h4>
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleLoadEventToEdit(ev)}
-                        className="px-2.5 py-1 rounded-sm bg-[#353535] text-xs text-white cursor-pointer"
-                      >
-                        Editar
-                      </button>
-                      <Link
-                        href={`/eventos/${ev.slug}`}
-                        className="px-2.5 py-1 rounded-sm bg-[#121212] text-xs text-white/80"
-                      >
-                        Ver
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await deleteEvent(ev.id);
-                          syncAll();
-                        }}
-                        className="p-1 text-white/40 hover:text-white ml-auto cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+              {events.map((ev) => {
+                const isPublicNow = isEventVisiblePublicly(ev);
+                const isScheduledFuture =
+                  !ev.hidden &&
+                  Boolean(
+                    ev.publishAt &&
+                      new Date(ev.publishAt).getTime() > Date.now()
+                  );
+
+                return (
+                  <div
+                    key={ev.id}
+                    className={`p-4 rounded-lg bg-[#1c1c1c] border flex items-center gap-4 ${
+                      isPublicNow
+                        ? "border-transparent"
+                        : "border-[#ffb5d7]/30 opacity-80"
+                    }`}
+                  >
+                    <div className="w-16 h-16 rounded overflow-hidden shrink-0">
+                      <BreshPosterArt event={ev} variant="square" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                        <span className="text-xs text-[#8a8a8a]">
+                          {ev.dateLabel}
+                        </span>
+                        {ev.hidden ? (
+                          <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[10px] font-medium">
+                            Oculto
+                          </span>
+                        ) : isScheduledFuture ? (
+                          <span className="px-2 py-0.5 rounded bg-[#353535] text-[#ffb5d7] text-[10px] font-medium inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Sale:{" "}
+                            {new Date(ev.publishAt!).toLocaleString("es-AR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[10px] font-medium">
+                            Publicado
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-base font-medium text-white truncate">
+                        {ev.title}
+                      </h4>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleLoadEventToEdit(ev)}
+                          className="px-2.5 py-1 rounded-sm bg-[#353535] hover:bg-[#444] text-xs text-white cursor-pointer"
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await toggleEventHidden(ev.id);
+                            syncAll();
+                          }}
+                          className={`px-2.5 py-1 rounded-sm text-xs flex items-center gap-1 cursor-pointer ${
+                            ev.hidden
+                              ? "bg-soft-pink text-[#1c1c1c] font-medium"
+                              : "bg-[#121212] text-white/80 hover:text-white"
+                          }`}
+                          title={
+                            ev.hidden
+                              ? "Publicar evento ahora"
+                              : "Ocultar evento de la web pública"
+                          }
+                        >
+                          {ev.hidden ? (
+                            <>
+                              <Eye className="w-3.5 h-3.5" />
+                              Mostrar
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5" />
+                              Ocultar
+                            </>
+                          )}
+                        </button>
+
+                        <Link
+                          href={`/eventos/${ev.slug}`}
+                          className="px-2.5 py-1 rounded-sm bg-[#121212] text-xs text-white/80"
+                        >
+                          Ver
+                        </Link>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await deleteEvent(ev.id);
+                            syncAll();
+                          }}
+                          className="p-1 text-white/40 hover:text-white ml-auto cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

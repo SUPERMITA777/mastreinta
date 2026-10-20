@@ -6,11 +6,15 @@ import Link from "next/link";
 import {
   Check,
   Copy,
+  ExternalLink,
   Info,
+  Instagram,
   MapPin,
+  MessageCircle,
   MessageSquare,
   QrCode,
   Send,
+  Share2,
   X,
 } from "lucide-react";
 import {
@@ -57,6 +61,7 @@ export default function BreshEventModal({
     { name: "", dni: "" },
   ]);
   const [copiedAlias, setCopiedAlias] = useState(false);
+  const [sharedCopied, setSharedCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Estado Pregunta Rápida
@@ -198,13 +203,85 @@ export default function BreshEventModal({
                     </div>
 
                     {/* Bloque Fecha 40px */}
-                    <div className="mb-8">
+                    <div className="mb-6">
                       <div className="text-sm text-white/60 mb-1">Fecha</div>
                       <div className="text-[40px] font-medium leading-none">
                         {event.shortDate}
                       </div>
                       <div className="text-sm text-white/80 mt-1">
                         {event.dateLabel} · {event.time}
+                      </div>
+                    </div>
+
+                    {/* Botones Rápidos: Compartir Evento + WhatsApp Organizador + Redes Sociales */}
+                    <div className="mb-8 space-y-2.5 max-w-md">
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={`https://wa.me/${(
+                            event.organizerWhatsapp || bank.whatsappSupport
+                          ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                            `¡Hola MAS30! Quiero hacer una consulta / comprar entradas para el evento *${event.title}* (${event.dateLabel}).`
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 min-w-[200px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] text-white text-xs font-medium border border-white/15 transition-colors"
+                        >
+                          <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
+                          WhatsApp Organizador (Consultas & Tickets)
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const shareUrl = `${window.location.origin}/eventos/${event.slug}`;
+                            if (navigator.share) {
+                              try {
+                                await navigator.share({
+                                  title: `MAS30 · ${event.title}`,
+                                  text: `${event.title} (${event.dateLabel}) en MAS30`,
+                                  url: shareUrl,
+                                });
+                                return;
+                              } catch {
+                                // fallback copy
+                              }
+                            }
+                            navigator.clipboard.writeText(shareUrl);
+                            setSharedCopied(true);
+                            setTimeout(() => setSharedCopied(false), 2500);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-medium cursor-pointer transition-colors"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          {sharedCopied ? "¡Link copiado!" : "Compartir Evento"}
+                        </button>
+                      </div>
+
+                      {/* Links a Redes Sociales del Evento */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <a
+                          href={
+                            event.instagramUrl ||
+                            "https://instagram.com/mas30.eventos"
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
+                        >
+                          <Instagram className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                          Instagram Oficial
+                        </a>
+                        {event.tiktokUrl && (
+                          <a
+                            href={event.tiktokUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-black/30 hover:bg-black/45 text-white text-xs transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                            Red Social / Video
+                          </a>
+                        )}
                       </div>
                     </div>
 

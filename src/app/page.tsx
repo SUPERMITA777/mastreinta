@@ -2,15 +2,30 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Globe, Search } from "lucide-react";
-import { createInquiry, getEvents, INITIAL_EVENTS } from "@/lib/store";
-import { EventItem } from "@/lib/types";
+import {
+  ChevronDown,
+  Globe,
+  Instagram,
+  MessageCircle,
+  Search,
+  Share2,
+} from "lucide-react";
+import {
+  createInquiry,
+  getBankSettings,
+  getPublicEvents,
+  INITIAL_EVENTS,
+  INITIAL_SETTINGS,
+} from "@/lib/store";
+import { BankSettings, EventItem } from "@/lib/types";
 import BreshPosterArt from "@/components/BreshPosterArt";
 import BreshEventModal from "@/components/BreshEventModal";
 
 export default function HomePage() {
   const router = useRouter();
   const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
+  const [bank, setBank] = useState<BankSettings>(INITIAL_SETTINGS);
+  const [sharedEventId, setSharedEventId] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [topTab, setTopTab] = useState<"TODOS" | "CERCA" | "FIESTAS">("TODOS");
   const [categoryFilter, setCategoryFilter] = useState<
@@ -32,11 +47,17 @@ export default function HomePage() {
   const [qrLookupCode, setQrLookupCode] = useState("");
 
   useEffect(() => {
-    const sync = () => setEvents(getEvents());
+    const sync = () => {
+      setEvents(getPublicEvents());
+      setBank(getBankSettings());
+    };
     sync();
+    // Re-verifica cada 15s por si un evento programado alcanza su fecha/hora de lanzamiento automático
+    const launchTimer = setInterval(sync, 15000);
     window.addEventListener("mas30-store-updated", sync);
     window.addEventListener("storage", sync);
     return () => {
+      clearInterval(launchTimer);
       window.removeEventListener("mas30-store-updated", sync);
       window.removeEventListener("storage", sync);
     };
@@ -352,7 +373,7 @@ export default function HomePage() {
                   <p className="text-base text-[#8a8a8a]">{event.dateLabel}</p>
                 </div>
 
-                <div className="flex items-center justify-between mt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -363,6 +384,71 @@ export default function HomePage() {
                   >
                     Tickets
                   </button>
+
+                  {/* Botones de Acción Rápida: WhatsApp Organizador, Redes Sociales y Compartir */}
+                  <div
+                    className="flex items-center gap-1.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <a
+                      href={`https://wa.me/${(
+                        event.organizerWhatsapp || bank.whatsappSupport
+                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                        `¡Hola MAS30! Quiero consultar o comprar tickets para el evento *${event.title}* (${event.dateLabel}).`
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="WhatsApp del Organizador (Consultas y compra de tickets)"
+                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] transition-colors flex items-center gap-1 text-xs"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span className="hidden sm:inline">WhatsApp</span>
+                    </a>
+
+                    <a
+                      href={
+                        event.instagramUrl ||
+                        "https://instagram.com/mas30.eventos"
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Redes Sociales del Evento"
+                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors"
+                    >
+                      <Instagram className="w-4 h-4" />
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const shareUrl = `${window.location.origin}/eventos/${event.slug}`;
+                        if (navigator.share) {
+                          try {
+                            await navigator.share({
+                              title: `MAS30 · ${event.title}`,
+                              text: `${event.title} (${event.dateLabel}) en MAS30`,
+                              url: shareUrl,
+                            });
+                            return;
+                          } catch {
+                            // fallback copy
+                          }
+                        }
+                        navigator.clipboard.writeText(shareUrl);
+                        setSharedEventId(event.id);
+                        setTimeout(() => setSharedEventId(null), 2000);
+                      }}
+                      title="Compartir Evento"
+                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-xs"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      {sharedEventId === event.id && (
+                        <span className="text-[11px] text-[#ffb5d7]">
+                          ¡Copiado!
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

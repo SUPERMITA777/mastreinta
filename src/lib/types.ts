@@ -36,6 +36,11 @@ export interface EventItem {
   lineup: string[];
   ticketTiers: TicketTier[];
   status: "ACTIVO" | "ULTIMAS_ENTRADAS" | "AGOTADO" | "PROXIMAMENTE";
+  hidden?: boolean;
+  publishAt?: string; // Fecha y hora ISO para publicación automática (ej: "2026-10-25T20:00")
+  organizerWhatsapp?: string; // WhatsApp directo del organizador para consultas y compra de entradas
+  instagramUrl?: string; // Link a Instagram del evento / productora
+  tiktokUrl?: string; // Link a TikTok / Red social adicional
   createdAt: string;
 }
 

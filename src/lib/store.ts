@@ -531,6 +531,36 @@ export function getEvents(): EventItem[] {
   }
 }
 
+export function isEventVisiblePublicly(
+  event: EventItem,
+  now: Date = new Date()
+): boolean {
+  if (event.hidden) return false;
+  if (event.publishAt && event.publishAt.trim()) {
+    const launchTime = new Date(event.publishAt).getTime();
+    if (!Number.isNaN(launchTime) && launchTime > now.getTime()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function getPublicEvents(): EventItem[] {
+  const now = new Date();
+  return getEvents().filter((ev) => isEventVisiblePublicly(ev, now));
+}
+
+export async function toggleEventHidden(eventId: string): Promise<EventItem[]> {
+  const current = getEvents();
+  const target = current.find((e) => e.id === eventId);
+  if (!target) return current;
+  const updatedEvent: EventItem = {
+    ...target,
+    hidden: !target.hidden,
+  };
+  return upsertEvent(updatedEvent);
+}
+
 export function getEventBySlug(slug: string): EventItem | undefined {
   return getEvents().find((e) => e.slug === slug || e.id === slug);
 }
