@@ -36,8 +36,12 @@ export function getEventText(event: EventItem, key: EventTextKey): string {
 }
 
 export function getMinPrice(event: EventItem): number {
-  const prices = event.ticketTiers.map((t) => t.price);
-  return prices.length ? Math.min(...prices) : 0;
+  const tiers = event.ticketTiers || [];
+  if (tiers.length === 0) return 0;
+  const generalTier = tiers.find((t) => /general/i.test(t.name || ""));
+  if (generalTier) return generalTier.price;
+  const prices = tiers.map((t) => t.price);
+  return Math.min(...prices);
 }
 
 /** Reemplaza {evento} y {fecha} (y opcionalmente {precio}) en un texto. */
