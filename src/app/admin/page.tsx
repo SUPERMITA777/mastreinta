@@ -26,6 +26,7 @@ import {
   createManualAdminAccess,
   deleteAdminUser,
   deleteEvent,
+  deleteInquiry,
   formatARS,
   getAdminUsers,
   getBankSettings,
@@ -44,6 +45,7 @@ import {
   saveBankSettings,
   upsertAdminUser,
   upsertEvent,
+  upsertInquiry,
 } from "@/lib/store";
 import {
   AdminUser,
@@ -151,6 +153,16 @@ export default function AdminDashboardPage() {
   const [eventSavedMsg, setEventSavedMsg] = useState(false);
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [editingInquiryId, setEditingInquiryId] = useState<string | null>(null);
+  const [faqEventId, setFaqEventId] = useState<string>("ALL");
+  const [faqAuthorName, setFaqAuthorName] = useState<string>(
+    "Preguntas Frecuentes MAS30"
+  );
+  const [faqQuestion, setFaqQuestion] = useState<string>("");
+  const [faqAnswer, setFaqAnswer] = useState<string>("");
+  const [faqIsPublic, setFaqIsPublic] = useState<boolean>(true);
+  const [faqSavedMsg, setFaqSavedMsg] = useState<string>("");
+
   const [configSaved, setConfigSaved] = useState(false);
   const [supabaseKeyInput, setSupabaseKeyInput] = useState("");
   const [supabaseStatusMsg, setSupabaseStatusMsg] = useState("");
@@ -1705,62 +1717,283 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* TAB 4: CONSULTAS Y PREGUNTAS */}
+        {/* TAB 4: CREAR, EDITAR Y RESPONDER PREGUNTAS Y RESPUESTAS */}
         {activeTab === "consultas" && (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-normal text-white">
-              Preguntas y Contactos ({inquiries.length})
-            </h2>
-            {inquiries.map((inq) => {
-              const draft = replyDrafts[inq.id] ?? inq.reply ?? "";
-              return (
-                <div
-                  key={inq.id}
-                  className="rounded-lg bg-[#1c1c1c] p-6 space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs text-[#ffb5d7]">
-                      {inq.type === "PREGUNTA_EVENTO"
-                        ? `Evento: ${inq.eventTitle}`
-                        : "Contacto General"}
-                    </span>
-                    <span className="text-xs text-[#8a8a8a]">
-                      {inq.name} · {inq.email} · {inq.phone}
-                    </span>
-                  </div>
-
-                  <p className="text-sm text-white bg-[#121212] p-3.5 rounded-md">
-                    &ldquo;{inq.message}&rdquo;
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-2.5">
-                    <input
-                      type="text"
-                      value={draft}
-                      onChange={(e) =>
-                        setReplyDrafts((prev) => ({
-                          ...prev,
-                          [inq.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Escribir respuesta oficial de MAS30..."
-                      className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!draft.trim()) return;
-                        await replyInquiry(inq.id, draft, true);
-                        syncAll();
-                      }}
-                      className="px-4 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer"
-                    >
-                      Responder y Publicar
-                    </button>
-                  </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* FORMULARIO CREAR / EDITAR PREGUNTA Y RESPUESTA */}
+            <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs uppercase text-[#ffb5d7] block mb-1">
+                    Preguntas Frecuentes (FAQ) & Consultas
+                  </span>
+                  <h2 className="text-2xl font-normal text-white">
+                    {editingInquiryId
+                      ? "Editar Pregunta y Respuesta"
+                      : "Crear Pregunta y Respuesta"}
+                  </h2>
                 </div>
-              );
-            })}
+                {editingInquiryId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingInquiryId(null);
+                      setFaqEventId("ALL");
+                      setFaqAuthorName("Preguntas Frecuentes MAS30");
+                      setFaqQuestion("");
+                      setFaqAnswer("");
+                      setFaqIsPublic(true);
+                    }}
+                    className="text-xs text-[#ffb5d7] underline cursor-pointer"
+                  >
+                    Cancelar edición
+                  </button>
+                )}
+              </div>
+
+              {faqSavedMsg && (
+                <div className="p-3 rounded bg-[#353535] text-xs text-[#ffb5d7]">
+                  {faqSavedMsg}
+                </div>
+              )}
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!faqQuestion.trim()) return;
+                  const selectedEv = events.find((ev) => ev.id === faqEventId);
+                  const existing = inquiries.find(
+                    (i) => i.id === editingInquiryId
+                  );
+                  const itemToSave: InquiryItem = {
+                    id: editingInquiryId || `inq-${Date.now()}`,
+                    type: "PREGUNTA_EVENTO",
+                    eventId: faqEventId === "ALL" ? "ALL" : faqEventId,
+                    eventTitle:
+                      faqEventId === "ALL"
+                        ? "Todos los Eventos (General)"
+                        : selectedEv?.title || "Evento MAS30",
+                    name:
+                      faqAuthorName.trim() || "Preguntas Frecuentes MAS30",
+                    email: existing?.email || "info@mas30.com",
+                    phone: existing?.phone || "+5491155553030",
+                    message: faqQuestion.trim(),
+                    reply: faqAnswer.trim() || undefined,
+                    isPublic: faqIsPublic,
+                    status: faqAnswer.trim() ? "RESPONDIDA" : "PENDIENTE",
+                    createdAt:
+                      existing?.createdAt || new Date().toISOString(),
+                  };
+
+                  await upsertInquiry(itemToSave);
+                  syncAll();
+                  setEditingInquiryId(null);
+                  setFaqQuestion("");
+                  setFaqAnswer("");
+                  setFaqAuthorName("Preguntas Frecuentes MAS30");
+                  setFaqSavedMsg(
+                    editingInquiryId
+                      ? "✓ Pregunta y respuesta actualizada con éxito."
+                      : "✓ Nueva pregunta y respuesta creada y publicada."
+                  );
+                  setTimeout(() => setFaqSavedMsg(""), 3500);
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Asignar a Evento
+                  </label>
+                  <select
+                    value={faqEventId}
+                    onChange={(e) => setFaqEventId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  >
+                    <option value="ALL">
+                      Todos los Eventos (Visible en toda la cartelera)
+                    </option>
+                    {events.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.title} ({ev.dateLabel})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Autor / Etiqueta visible
+                  </label>
+                  <input
+                    type="text"
+                    value={faqAuthorName}
+                    onChange={(e) => setFaqAuthorName(e.target.value)}
+                    placeholder="Ej: Preguntas Frecuentes MAS30 o nombre del asistente"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Pregunta *
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={faqQuestion}
+                    onChange={(e) => setFaqQuestion(e.target.value)}
+                    placeholder="Ej: ¿A qué hora abren las puertas y hasta qué hora se puede ingresar?"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    Respuesta Oficial de MAS30
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={faqAnswer}
+                    onChange={(e) => setFaqAnswer(e.target.value)}
+                    placeholder="Ej: Las puertas abren a las 23:30 hs. Con tu entrada QR podés ingresar toda la noche presentando DNI físico."
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={faqIsPublic}
+                    onChange={(e) => setFaqIsPublic(e.target.checked)}
+                  />
+                  Publicar y mostrar esta pregunta y respuesta en la página del
+                  evento
+                </label>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 rounded-[3px] bg-soft-pink hover:brightness-95 text-[#1c1c1c] font-medium text-xs cursor-pointer transition-all"
+                >
+                  {editingInquiryId
+                    ? "Guardar Cambios de Pregunta y Respuesta"
+                    : "Crear y Publicar Pregunta y Respuesta"}
+                </button>
+              </form>
+            </div>
+
+            {/* LISTADO DE PREGUNTAS Y RESPUESTAS EXISTENTES */}
+            <div className="lg:col-span-7 space-y-4">
+              <h2 className="text-2xl font-normal text-white">
+                Preguntas y Respuestas Cargadas ({inquiries.length})
+              </h2>
+
+              {inquiries.map((inq) => {
+                const draft = replyDrafts[inq.id] ?? inq.reply ?? "";
+                return (
+                  <div
+                    key={inq.id}
+                    className="rounded-lg bg-[#1c1c1c] p-6 space-y-4 border border-transparent hover:border-[#353535] transition-colors"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-sm bg-[#353535] text-xs text-[#ffb5d7]">
+                          {inq.eventId === "ALL" || !inq.eventTitle
+                            ? "Todos los Eventos"
+                            : `Evento: ${inq.eventTitle}`}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-sm text-[11px] ${
+                            inq.isPublic && inq.reply
+                              ? "bg-[#AF2C75] text-white"
+                              : "bg-[#121212] text-[#8a8a8a]"
+                          }`}
+                        >
+                          {inq.isPublic && inq.reply
+                            ? "Publicada en Web"
+                            : "Oculta / Sin publicar"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingInquiryId(inq.id);
+                            setFaqEventId(inq.eventId || "ALL");
+                            setFaqAuthorName(inq.name);
+                            setFaqQuestion(inq.message);
+                            setFaqAnswer(inq.reply || "");
+                            setFaqIsPublic(inq.isPublic);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className="px-3 py-1 rounded-sm bg-[#353535] hover:bg-[#484848] text-xs text-white cursor-pointer"
+                        >
+                          Editar Pregunta / Respuesta
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await deleteInquiry(inq.id);
+                            syncAll();
+                          }}
+                          className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
+                          title="Eliminar pregunta y respuesta"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-[#8a8a8a]">
+                      Autor: <strong className="text-white">{inq.name}</strong>
+                      {inq.email && inq.email !== "info@mas30.com"
+                        ? ` · ${inq.email}`
+                        : ""}
+                    </div>
+
+                    <div className="bg-[#121212] p-3.5 rounded-md space-y-2">
+                      <p className="text-xs uppercase text-[#8a8a8a]">
+                        Pregunta:
+                      </p>
+                      <p className="text-sm text-white">
+                        &ldquo;{inq.message}&rdquo;
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs text-[#8a8a8a]">
+                        Respuesta Oficial (podés editarla directamente acá):
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2.5">
+                        <input
+                          type="text"
+                          value={draft}
+                          onChange={(e) =>
+                            setReplyDrafts((prev) => ({
+                              ...prev,
+                              [inq.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Escribir o editar respuesta oficial de MAS30..."
+                          className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!draft.trim()) return;
+                            await replyInquiry(inq.id, draft, true);
+                            syncAll();
+                          }}
+                          className="px-4 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer shrink-0"
+                        >
+                          Guardar y Publicar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

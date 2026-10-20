@@ -74,10 +74,9 @@ export default function BreshEventModal({
     setQuestions(
       allInq.filter(
         (i) =>
-          i.type === "PREGUNTA_EVENTO" &&
-          i.eventId === event.id &&
+          (i.eventId === event.id || i.eventId === "ALL" || !i.eventId) &&
           i.isPublic &&
-          i.reply
+          Boolean(i.reply)
       )
     );
     document.body.style.overflow = "hidden";

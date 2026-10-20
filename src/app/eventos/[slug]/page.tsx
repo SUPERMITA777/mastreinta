@@ -78,10 +78,9 @@ export default function EventDetailPage() {
         setQuestions(
           allInq.filter(
             (i) =>
-              i.type === "PREGUNTA_EVENTO" &&
-              i.eventId === found.id &&
+              (i.eventId === found.id || i.eventId === "ALL" || !i.eventId) &&
               i.isPublic &&
-              i.reply
+              Boolean(i.reply)
           )
         );
       }

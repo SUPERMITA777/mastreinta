@@ -1174,6 +1174,70 @@ export async function replyInquiry(
       : inq
   );
   saveInquiries(updated);
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from("inquiries")
+        .update({
+          reply: replyText,
+          is_public: makePublic,
+          status: "RESPONDIDA",
+        })
+        .eq("id", inquiryId);
+    } catch {
+      // fallback local
+    }
+  }
+}
+
+export async function upsertInquiry(item: InquiryItem): Promise<InquiryItem[]> {
+  const current = getInquiries();
+  const exists = current.some((i) => i.id === item.id);
+  const updated = exists
+    ? current.map((i) => (i.id === item.id ? item : i))
+    : [item, ...current];
+  saveInquiries(updated);
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from("inquiries").upsert({
+        id: item.id,
+        type: item.type,
+        event_id: item.eventId || "ALL",
+        event_title: item.eventTitle || "Todos los Eventos",
+        name: item.name,
+        email: item.email,
+        phone: item.phone,
+        message: item.message,
+        reply: item.reply || "",
+        is_public: item.isPublic,
+        status: item.status,
+      });
+    } catch {
+      // fallback local
+    }
+  }
+
+  return updated;
+}
+
+export async function deleteInquiry(inquiryId: string): Promise<InquiryItem[]> {
+  const updated = getInquiries().filter((i) => i.id !== inquiryId);
+  saveInquiries(updated);
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from("inquiries").delete().eq("id", inquiryId);
+    } catch {
+      // fallback local
+    }
+  }
+
+  return updated;
 }
 
 export function getBankSettings(): BankSettings {
