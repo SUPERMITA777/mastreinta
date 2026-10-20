@@ -9,6 +9,7 @@ import {
   CameraOff,
   CheckCircle2,
   Clock,
+  Lock,
   QrCode,
   RotateCcw,
   Search,
@@ -17,15 +18,22 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  getCurrentAdminSession,
   getEvents,
   getTickets,
+  loginAdminUser,
   resetTicketScanStatus,
   ScanValidationResult,
   validateAndScanQR,
 } from "@/lib/store";
-import { EventItem, TicketQR } from "@/lib/types";
+import { AdminUser, EventItem, TicketQR } from "@/lib/types";
 
 export default function DoorQRScannerPage() {
+  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
   const [tickets, setTickets] = useState<TicketQR[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedEventFilter, setSelectedEventFilter] = useState<string>("TODOS");
@@ -45,6 +53,7 @@ export default function DoorQRScannerPage() {
   const syncData = () => {
     setTickets(getTickets());
     setEvents(getEvents());
+    setCurrentUser(getCurrentAdminSession());
   };
 
   useEffect(() => {
@@ -94,7 +103,10 @@ export default function DoorQRScannerPage() {
 
   const handleProcessQR = async (code: string) => {
     if (!code.trim()) return;
-    const res = await validateAndScanQR(code.trim(), "Control Puerta MAS30");
+    const operatorLabel = currentUser
+      ? `${currentUser.fullName} (@${currentUser.username})`
+      : "Control Puerta MAS30";
+    const res = await validateAndScanQR(code.trim(), operatorLabel);
     setLastResult(res);
     syncData();
     if (res.outcome === "AUTORIZADO") {
@@ -212,6 +224,67 @@ export default function DoorQRScannerPage() {
 
   const usedCount = filteredTickets.filter((t) => t.status === "USADO").length;
   const validCount = filteredTickets.filter((t) => t.status === "VALIDO").length;
+
+  if (!currentUser) {
+    return (
+      <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-full bg-[#AF2C75]/30 border border-[#ffb5d7]/40 flex items-center justify-center mx-auto text-[#ffb5d7]">
+              <Lock className="w-5 h-5" />
+            </div>
+            <p className="text-xs uppercase tracking-widest text-[#ffb5d7]">
+              MAS30 · Control de Puerta
+            </p>
+            <h1 className="text-2xl font-normal text-white">
+              Acceso al Lector QR
+            </h1>
+          </div>
+          {loginError && (
+            <div className="p-3 rounded bg-red-950/80 text-xs text-red-200 text-center">
+              {loginError}
+            </div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const logged = loginAdminUser(loginUsername, loginPassword);
+              if (!logged) {
+                setLoginError("Usuario o contraseña incorrectos.");
+                return;
+              }
+              setLoginError("");
+              setCurrentUser(logged);
+            }}
+            className="space-y-4"
+          >
+            <input
+              type="text"
+              required
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              placeholder="Usuario (ej: puerta o admin)"
+              className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white"
+            />
+            <input
+              type="password"
+              required
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="Contraseña"
+              className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white"
+            />
+            <button
+              type="submit"
+              className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm cursor-pointer"
+            >
+              Ingresar a Escáner QR
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-dark-background text-white min-h-screen py-12">

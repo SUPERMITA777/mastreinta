@@ -145,6 +145,13 @@ export default function TicketQRCard({
             <p className="text-xs font-mono text-[#8a8a8a]">
               ID Puerta: <strong className="text-white">{ticket.shortCode}</strong>
             </p>
+            <p className="text-[11px] text-[#8a8a8a]">
+              Emitido por:{" "}
+              <strong className="text-[#ffb5d7]">
+                {ticket.generatedByName || "Admin MAS30"} (@
+                {ticket.generatedByUsername || "admin"})
+              </strong>
+            </p>
             {!isUsed && !isVoid && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-[2px] bg-[#252525] text-[#ffb5d7] text-xs font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5" />

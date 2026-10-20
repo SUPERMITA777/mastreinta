@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AdminUser,
   BankSettings,
   EventItem,
   InquiryItem,
@@ -16,7 +17,57 @@ const STORAGE_KEYS = {
   TICKETS: "mas30_tickets_v3",
   INQUIRIES: "mas30_inquiries_v3",
   SETTINGS: "mas30_settings_v3",
+  ADMIN_USERS: "mas30_admin_users_v1",
+  ADMIN_SESSION: "mas30_admin_session_v1",
 };
+
+export const INITIAL_ADMIN_USERS: AdminUser[] = [
+  {
+    id: "usr-admin-1",
+    username: "admin",
+    password: "mas30admin",
+    fullName: "Administrador General MAS30",
+    role: "ADMIN_GENERAL",
+    active: true,
+    createdAt: "2026-10-19T12:00:00Z",
+  },
+  {
+    id: "usr-caja-1",
+    username: "caja1",
+    password: "caja2026",
+    fullName: "Caja 1 · Verificación Transferencias",
+    role: "CAJA_VENTAS",
+    active: true,
+    createdAt: "2026-10-19T12:05:00Z",
+  },
+  {
+    id: "usr-caja-2",
+    username: "caja2",
+    password: "caja2026",
+    fullName: "Caja 2 · Ventas & Accesos",
+    role: "CAJA_VENTAS",
+    active: true,
+    createdAt: "2026-10-19T12:10:00Z",
+  },
+  {
+    id: "usr-rrpp-1",
+    username: "rrpp1",
+    password: "rrpp2026",
+    fullName: "RRPP 1 · Promoción MAS30",
+    role: "RRPP",
+    active: true,
+    createdAt: "2026-10-19T12:15:00Z",
+  },
+  {
+    id: "usr-puerta-1",
+    username: "puerta",
+    password: "puerta2026",
+    fullName: "Operador Puerta Principal",
+    role: "PUERTA",
+    active: true,
+    createdAt: "2026-10-19T12:20:00Z",
+  },
+];
 
 const LEGACY_KEYS = [
   "mas30_events_v1",
@@ -311,6 +362,9 @@ export const INITIAL_ORDERS: OrderItem[] = [
     ],
     status: "APROBADA",
     approvedAt: "2026-10-19T15:30:00Z",
+    approvedByUsername: "admin",
+    approvedByName: "Administrador General MAS30",
+    issueType: "TRANSFERENCIA_WEB",
     createdAt: "2026-10-19T14:15:00Z",
   },
   {
@@ -390,6 +444,9 @@ export const INITIAL_TICKETS: TicketQR[] = [
     buyerPhone: "+5491144889900",
     ticketNumber: 1,
     totalInOrder: 2,
+    unitPrice: 10000,
+    generatedByUsername: "admin",
+    generatedByName: "Administrador General MAS30",
     status: "VALIDO",
     createdAt: "2026-10-19T15:30:00Z",
   },
@@ -410,6 +467,9 @@ export const INITIAL_TICKETS: TicketQR[] = [
     buyerPhone: "+5491144889900",
     ticketNumber: 2,
     totalInOrder: 2,
+    unitPrice: 10000,
+    generatedByUsername: "admin",
+    generatedByName: "Administrador General MAS30",
     status: "VALIDO",
     createdAt: "2026-10-19T15:30:00Z",
   },
@@ -700,7 +760,11 @@ function generateRandomHexToken(len = 6): string {
   return out;
 }
 
-export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
+export async function approveOrderAndGenerateQRs(
+  orderId: string,
+  operator?: { username: string; fullName: string },
+  issueTypeOverride?: "TRANSFERENCIA_WEB" | "VENTA_MANUAL_ADMIN" | "CORTESIA_ADMIN"
+): Promise<{
   order: OrderItem;
   generatedTickets: TicketQR[];
 }> {
@@ -710,10 +774,21 @@ export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
     throw new Error("Orden no encontrada");
   }
 
+  const currentAdmin = operator || getCurrentAdminSession() || {
+    username: "admin",
+    fullName: "Administrador General MAS30",
+  };
+
   const approvedOrder: OrderItem = {
     ...target,
     status: "APROBADA",
     approvedAt: new Date().toISOString(),
+    approvedByUsername: currentAdmin.username,
+    approvedByName: currentAdmin.fullName,
+    issueType:
+      issueTypeOverride ||
+      target.issueType ||
+      (target.totalAmount === 0 ? "CORTESIA_ADMIN" : "TRANSFERENCIA_WEB"),
   };
 
   const updatedOrders = orders.map((o) =>
@@ -764,6 +839,9 @@ export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
         buyerPhone: target.buyerPhone,
         ticketNumber,
         totalInOrder: target.quantity,
+        unitPrice: target.unitPrice,
+        generatedByUsername: currentAdmin.username,
+        generatedByName: currentAdmin.fullName,
         status: "VALIDO",
         createdAt: new Date().toISOString(),
       };
@@ -792,7 +870,12 @@ export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
     try {
       await supabase
         .from("orders")
-        .update({ status: "APROBADA", approved_at: approvedOrder.approvedAt })
+        .update({
+          status: "APROBADA",
+          approved_at: approvedOrder.approvedAt,
+          approved_by_username: approvedOrder.approvedByUsername,
+          approved_by_name: approvedOrder.approvedByName,
+        })
         .eq("id", target.id);
 
       await supabase.from("tickets").insert(
@@ -810,6 +893,9 @@ export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
           holder_dni: t.holderDni,
           ticket_number: t.ticketNumber,
           total_in_order: t.totalInOrder,
+          unit_price: t.unitPrice ?? 10000,
+          generated_by_username: t.generatedByUsername,
+          generated_by_name: t.generatedByName,
           status: "VALIDO",
         }))
       );
@@ -821,19 +907,27 @@ export async function approveOrderAndGenerateQRs(orderId: string): Promise<{
   return { order: approvedOrder, generatedTickets: newTickets };
 }
 
-export async function createManualAdminAccess(input: {
-  eventId: string;
-  tierId: string;
-  holderName: string;
-  holderDni: string;
-  buyerPhone: string;
-  buyerEmail?: string;
-  quantity: number;
-  isCourtesy: boolean;
-}): Promise<{ order: OrderItem; tickets: TicketQR[] }> {
+export async function createManualAdminAccess(
+  input: {
+    eventId: string;
+    tierId: string;
+    holderName: string;
+    holderDni: string;
+    buyerPhone: string;
+    buyerEmail?: string;
+    quantity: number;
+    isCourtesy: boolean;
+  },
+  operator?: { username: string; fullName: string }
+): Promise<{ order: OrderItem; tickets: TicketQR[] }> {
   const event = getEvents().find((e) => e.id === input.eventId) || getEvents()[0];
   const tier =
     event.ticketTiers.find((t) => t.id === input.tierId) || event.ticketTiers[0];
+
+  const currentAdmin = operator || getCurrentAdminSession() || {
+    username: "admin",
+    fullName: "Administrador General MAS30",
+  };
 
   const createdOrder = await createTransferOrder({
     event,
@@ -844,12 +938,12 @@ export async function createManualAdminAccess(input: {
     buyerEmail: input.buyerEmail || "cortesia@mas30.com",
     buyerPhone: input.buyerPhone,
     transferSender: input.isCourtesy
-      ? "CORTESÍA / RRPP MAS30"
-      : "EMISIÓN DIRECTA ADMIN",
+      ? `CORTESÍA (${currentAdmin.fullName})`
+      : `COBRO DIRECTO (${currentAdmin.fullName})`,
     transferReference: input.isCourtesy ? "FREE-PASS" : "ADMIN-DIRECT",
     notes: input.isCourtesy
-      ? "Acceso emitido manualmente por Administración (Cortesía)"
-      : "Acceso emitido y cobrado directamente por Administración",
+      ? `Cortesía sin cargo emitida por ${currentAdmin.fullName} (@${currentAdmin.username})`
+      : `Venta directa cobrada y emitida por ${currentAdmin.fullName} (@${currentAdmin.username})`,
     attendees: Array.from({ length: input.quantity }, (_, idx) => ({
       name:
         idx === 0
@@ -861,13 +955,24 @@ export async function createManualAdminAccess(input: {
 
   if (input.isCourtesy) {
     const orders = getOrders().map((o) =>
-      o.id === createdOrder.id ? { ...o, unitPrice: 0, totalAmount: 0 } : o
+      o.id === createdOrder.id
+        ? { ...o, unitPrice: 0, totalAmount: 0, issueType: "CORTESIA_ADMIN" as const }
+        : o
+    );
+    saveOrders(orders);
+  } else {
+    const orders = getOrders().map((o) =>
+      o.id === createdOrder.id
+        ? { ...o, issueType: "VENTA_MANUAL_ADMIN" as const }
+        : o
     );
     saveOrders(orders);
   }
 
   const { order, generatedTickets } = await approveOrderAndGenerateQRs(
-    createdOrder.id
+    createdOrder.id,
+    currentAdmin,
+    input.isCourtesy ? "CORTESIA_ADMIN" : "VENTA_MANUAL_ADMIN"
   );
   return { order, tickets: generatedTickets };
 }
@@ -1091,6 +1196,85 @@ export function getBankSettings(): BankSettings {
 export function saveBankSettings(settings: BankSettings): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+  notifyStoreUpdate();
+}
+
+export function getAdminUsers(): AdminUser[] {
+  if (typeof window === "undefined") return INITIAL_ADMIN_USERS;
+  const raw = localStorage.getItem(STORAGE_KEYS.ADMIN_USERS);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_KEYS.ADMIN_USERS,
+      JSON.stringify(INITIAL_ADMIN_USERS)
+    );
+    return INITIAL_ADMIN_USERS;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return INITIAL_ADMIN_USERS;
+  }
+}
+
+export function saveAdminUsers(users: AdminUser[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEYS.ADMIN_USERS, JSON.stringify(users));
+  notifyStoreUpdate();
+}
+
+export function upsertAdminUser(user: AdminUser): AdminUser[] {
+  const current = getAdminUsers();
+  const exists = current.some((u) => u.id === user.id);
+  const updated = exists
+    ? current.map((u) => (u.id === user.id ? user : u))
+    : [...current, user];
+  saveAdminUsers(updated);
+  return updated;
+}
+
+export function deleteAdminUser(userId: string): AdminUser[] {
+  const current = getAdminUsers();
+  if (current.length <= 1) return current;
+  const updated = current.filter((u) => u.id !== userId);
+  saveAdminUsers(updated);
+  return updated;
+}
+
+export function getCurrentAdminSession(): AdminUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(STORAGE_KEYS.ADMIN_SESSION);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function loginAdminUser(
+  usernameInput: string,
+  passwordInput: string
+): AdminUser | null {
+  const cleanUser = usernameInput.trim().toLowerCase();
+  const cleanPass = passwordInput.trim();
+  const users = getAdminUsers();
+  const found = users.find(
+    (u) =>
+      u.active &&
+      u.username.trim().toLowerCase() === cleanUser &&
+      u.password === cleanPass
+  );
+  if (!found) return null;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, JSON.stringify(found));
+    notifyStoreUpdate();
+  }
+  return found;
+}
+
+export function logoutAdminUser(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
   notifyStoreUpdate();
 }
 

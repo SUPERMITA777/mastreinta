@@ -59,6 +59,8 @@ create table if not exists public.orders (
   notes text,
   status text not null default 'PENDIENTE',
   approved_at timestamptz,
+  approved_by_username text,
+  approved_by_name text,
   created_at timestamptz default now()
 );
 
@@ -77,6 +79,9 @@ create table if not exists public.tickets (
   holder_dni text not null,
   ticket_number integer not null,
   total_in_order integer not null,
+  unit_price numeric not null default 10000,
+  generated_by_username text,
+  generated_by_name text,
   status text not null default 'VALIDO',
   scanned_at timestamptz,
   scanned_by text,

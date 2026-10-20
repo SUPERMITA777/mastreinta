@@ -44,6 +44,16 @@ export interface OrderAttendeeInput {
   dni: string;
 }
 
+export interface AdminUser {
+  id: string;
+  username: string;
+  password: string;
+  fullName: string;
+  role: "ADMIN_GENERAL" | "CAJA_VENTAS" | "RRPP" | "PUERTA";
+  active: boolean;
+  createdAt: string;
+}
+
 export interface OrderItem {
   id: string;
   orderCode: string; // Ej: MAS30-8492
@@ -68,6 +78,9 @@ export interface OrderItem {
   attendees: OrderAttendeeInput[];
   status: "PENDIENTE" | "APROBADA" | "RECHAZADA";
   approvedAt?: string;
+  approvedByUsername?: string;
+  approvedByName?: string;
+  issueType?: "TRANSFERENCIA_WEB" | "VENTA_MANUAL_ADMIN" | "CORTESIA_ADMIN";
   createdAt: string;
 }
 
@@ -88,6 +101,9 @@ export interface TicketQR {
   buyerPhone: string;
   ticketNumber: number;
   totalInOrder: number;
+  unitPrice?: number;
+  generatedByUsername?: string;
+  generatedByName?: string;
   status: "VALIDO" | "USADO" | "ANULADO";
   scannedAt?: string;
   scannedBy?: string;

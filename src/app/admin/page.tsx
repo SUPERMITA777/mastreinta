@@ -7,33 +7,46 @@ import {
   Database,
   Download,
   ExternalLink,
+  Lock,
+  LogOut,
   MessageCircle,
   Plus,
   QrCode,
   Search,
+  ShieldCheck,
   Trash2,
   Upload,
   UserPlus,
+  Users,
+  Wallet,
   X,
 } from "lucide-react";
 import {
   approveOrderAndGenerateQRs,
   createManualAdminAccess,
+  deleteAdminUser,
   deleteEvent,
   formatARS,
+  getAdminUsers,
   getBankSettings,
+  getCurrentAdminSession,
   getEvents,
   getInquiries,
   getOrders,
   getTickets,
+  INITIAL_ADMIN_USERS,
   INITIAL_EVENTS,
   INITIAL_SETTINGS,
+  loginAdminUser,
+  logoutAdminUser,
   rejectOrder,
   replyInquiry,
   saveBankSettings,
+  upsertAdminUser,
   upsertEvent,
 } from "@/lib/store";
 import {
+  AdminUser,
   BankSettings,
   EventItem,
   InquiryItem,
@@ -51,6 +64,7 @@ import BreshPosterArt from "@/components/BreshPosterArt";
 
 type AdminTab =
   | "reservas"
+  | "rendicion"
   | "eventos"
   | "tickets"
   | "consultas"
@@ -58,6 +72,26 @@ type AdminTab =
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>("reservas");
+
+  // Autenticación y Usuarios Admin
+  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
+  const [adminUsers, setAdminUsers] =
+    useState<AdminUser[]>(INITIAL_ADMIN_USERS);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  // Filtros de Rendición de Cuentas y Creación de Usuarios
+  const [rendicionEventFilter, setRendicionEventFilter] =
+    useState<string>("TODOS");
+  const [rendicionUserFilter, setRendicionUserFilter] =
+    useState<string>("TODOS");
+  const [newUserFullName, setNewUserFullName] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] =
+    useState<AdminUser["role"]>("CAJA_VENTAS");
+  const [userSavedMsg, setUserSavedMsg] = useState("");
 
   const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
   const [orders, setOrders] = useState<OrderItem[]>([]);
@@ -128,6 +162,8 @@ export default function AdminDashboardPage() {
     setTickets(getTickets());
     setInquiries(getInquiries());
     setBankSettings(getBankSettings());
+    setAdminUsers(getAdminUsers());
+    setCurrentUser(getCurrentAdminSession());
     if (typeof window !== "undefined") {
       setSupabaseKeyInput(
         localStorage.getItem("mas30_supabase_anon_key") || ""
@@ -168,7 +204,12 @@ export default function AdminDashboardPage() {
   ).length;
 
   const handleApproveOrder = async (orderId: string, orderCode: string) => {
-    await approveOrderAndGenerateQRs(orderId);
+    await approveOrderAndGenerateQRs(
+      orderId,
+      currentUser
+        ? { username: currentUser.username, fullName: currentUser.fullName }
+        : undefined
+    );
     syncAll();
     setExpandedOrderCode(orderCode);
   };
@@ -176,21 +217,73 @@ export default function AdminDashboardPage() {
   const handleCreateManualAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualName.trim() || !manualDni.trim()) return;
-    const { order } = await createManualAdminAccess({
-      eventId: manualEventId,
-      tierId: manualTierId,
-      holderName: manualName,
-      holderDni: manualDni,
-      buyerPhone: manualPhone || "+5491100000000",
-      quantity: manualQty,
-      isCourtesy: manualIsCourtesy,
-    });
+    const { order } = await createManualAdminAccess(
+      {
+        eventId: manualEventId,
+        tierId: manualTierId,
+        holderName: manualName,
+        holderDni: manualDni,
+        buyerPhone: manualPhone || "+5491100000000",
+        quantity: manualQty,
+        isCourtesy: manualIsCourtesy,
+      },
+      currentUser
+        ? { username: currentUser.username, fullName: currentUser.fullName }
+        : undefined
+    );
     syncAll();
     setShowManualModal(false);
     setManualName("");
     setManualDni("");
     setManualPhone("");
     setExpandedOrderCode(order.orderCode);
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const logged = loginAdminUser(loginUsername, loginPassword);
+    if (!logged) {
+      setLoginError(
+        "Usuario o contraseña incorrectos. Revisá las credenciales."
+      );
+      return;
+    }
+    setLoginError("");
+    setCurrentUser(logged);
+    syncAll();
+  };
+
+  const handleCreateAdminUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !newUserFullName.trim() ||
+      !newUsername.trim() ||
+      !newUserPassword.trim()
+    )
+      return;
+    const cleanUsername = newUsername
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_.-]/g, "");
+    const existing = adminUsers.find((u) => u.username === cleanUsername);
+    const created: AdminUser = {
+      id: existing ? existing.id : `usr-${Date.now()}`,
+      username: cleanUsername,
+      password: newUserPassword.trim(),
+      fullName: newUserFullName.trim(),
+      role: newUserRole,
+      active: true,
+      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+    };
+    upsertAdminUser(created);
+    syncAll();
+    setNewUserFullName("");
+    setNewUsername("");
+    setNewUserPassword("");
+    setUserSavedMsg(
+      `✓ Usuario @${cleanUsername} (${created.fullName}) guardado con éxito.`
+    );
+    setTimeout(() => setUserSavedMsg(""), 4000);
   };
 
   const handleFlyerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -304,6 +397,8 @@ export default function AdminDashboardPage() {
       "Sector",
       "Nombre Asistente",
       "DNI",
+      "Precio Unitario",
+      "Emitido Por Usuario",
       "Estado",
       "Hora Escaneo",
     ];
@@ -314,6 +409,8 @@ export default function AdminDashboardPage() {
       `"${t.tierName}"`,
       `"${t.holderName}"`,
       t.holderDni,
+      t.unitPrice ?? 10000,
+      `"${t.generatedByName || "Admin"} (@${t.generatedByUsername || "admin"})"`,
       t.status,
       t.scannedAt || "-",
     ]);
@@ -326,6 +423,93 @@ export default function AdminDashboardPage() {
     a.click();
   };
 
+  // Órdenes aprobadas filtradas para la Rendición de Dinero
+  const approvedOrdersForRendicion = orders.filter((o) => {
+    if (o.status !== "APROBADA") return false;
+    if (
+      rendicionEventFilter !== "TODOS" &&
+      o.eventId !== rendicionEventFilter
+    ) {
+      return false;
+    }
+    if (
+      rendicionUserFilter !== "TODOS" &&
+      (o.approvedByUsername || "admin") !== rendicionUserFilter
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  // Resumen de Rendición agrupado por cada Usuario / Operador
+  const operatorSummaries = adminUsers.map((usr) => {
+    const userOrders = orders.filter(
+      (o) =>
+        o.status === "APROBADA" &&
+        (o.approvedByUsername || "admin") === usr.username &&
+        (rendicionEventFilter === "TODOS" || o.eventId === rendicionEventFilter)
+    );
+    const paidOrders = userOrders.filter((o) => o.totalAmount > 0);
+    const courtesyOrders = userOrders.filter((o) => o.totalAmount === 0);
+    const paidQRsCount = paidOrders.reduce((acc, o) => acc + o.quantity, 0);
+    const courtesyQRsCount = courtesyOrders.reduce(
+      (acc, o) => acc + o.quantity,
+      0
+    );
+    const totalMoneyToRender = paidOrders.reduce(
+      (acc, o) => acc + o.totalAmount,
+      0
+    );
+    return {
+      user: usr,
+      ordersCount: userOrders.length,
+      paidQRsCount,
+      courtesyQRsCount,
+      totalQRsCount: paidQRsCount + courtesyQRsCount,
+      totalMoneyToRender,
+    };
+  });
+
+  const handleExportRendicionCSV = () => {
+    const headers = [
+      "Fecha Aprobacion",
+      "Usuario Operador",
+      "Nombre Operador",
+      "Codigo Orden",
+      "Evento",
+      "Cliente",
+      "DNI Cliente",
+      "Tipo Emision",
+      "Cantidad QRs",
+      "Monto a Rendir (ARS)",
+      "Comprobante / Referencia",
+    ];
+    const rows = approvedOrdersForRendicion.map((o) => [
+      o.approvedAt ? new Date(o.approvedAt).toLocaleString("es-AR") : "-",
+      `@${o.approvedByUsername || "admin"}`,
+      `"${o.approvedByName || "Administrador General MAS30"}"`,
+      o.orderCode,
+      `"${o.eventTitle}"`,
+      `"${o.buyerName}"`,
+      o.buyerDni,
+      o.totalAmount === 0
+        ? "CORTESIA ($0)"
+        : o.issueType === "VENTA_MANUAL_ADMIN"
+        ? "COBRO DIRECTO ADMIN"
+        : "TRANSFERENCIA VERIFICADA",
+      o.quantity,
+      o.totalAmount,
+      `"${o.transferReference} (${o.transferSender})"`,
+    ]);
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Rendicion-Caja-MAS30-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
   const filteredOrders = orders.filter((o) => {
     const matchStatus =
       orderStatusFilter === "TODOS" || o.status === orderStatusFilter;
@@ -335,22 +519,141 @@ export default function AdminDashboardPage() {
       o.orderCode.toLowerCase().includes(q) ||
       o.buyerName.toLowerCase().includes(q) ||
       o.buyerDni.toLowerCase().includes(q) ||
-      o.transferReference.toLowerCase().includes(q);
+      o.transferReference.toLowerCase().includes(q) ||
+      (o.approvedByName || "").toLowerCase().includes(q) ||
+      (o.approvedByUsername || "").toLowerCase().includes(q);
     return matchStatus && matchText;
   });
 
   const selectedManualEvent =
     events.find((e) => e.id === manualEventId) || events[0];
 
+  // PANTALLA DE LOGIN CON CONTRASEÑA PARA OPERADORES / ADMIN
+  if (!currentUser) {
+    return (
+      <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 space-y-6 shadow-2xl">
+          <div className="space-y-2 text-center">
+            <div className="w-12 h-12 rounded-full bg-[#AF2C75]/30 border border-[#ffb5d7]/40 flex items-center justify-center mx-auto text-[#ffb5d7]">
+              <Lock className="w-5 h-5" />
+            </div>
+            <p className="text-xs uppercase tracking-widest text-[#ffb5d7]">
+              MAS30 Producciones · Acceso Restringido
+            </p>
+            <h1 className="text-2xl font-normal text-white">
+              Ingreso de Operadores & Caja
+            </h1>
+            <p className="text-xs text-[#8a8a8a]">
+              Cada código QR autorizado o emitido quedará registrado a nombre de
+              tu usuario para la rendición de dinero.
+            </p>
+          </div>
+
+          {loginError && (
+            <div className="p-3 rounded bg-red-950/80 border border-red-500/40 text-xs text-red-200 text-center">
+              {loginError}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs text-[#8a8a8a] mb-1">
+                Usuario Operador
+              </label>
+              <input
+                type="text"
+                required
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                placeholder="Ej: admin, caja1, rrpp1..."
+                className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-[#8a8a8a] mb-1">
+                Contraseña
+              </label>
+              <input
+                type="password"
+                required
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-[3px] bg-soft-pink hover:brightness-95 text-[#1c1c1c] font-medium text-sm cursor-pointer transition-all"
+            >
+              Ingresar al Panel MAS30
+            </button>
+          </form>
+
+          <div className="pt-4 border-t border-[#353535] space-y-2">
+            <p className="text-[11px] text-[#8a8a8a]">
+              Usuarios iniciales preconfigurados (podés crear nuevos o cambiar
+              claves dentro del panel):
+            </p>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginUsername("admin");
+                  setLoginPassword("mas30admin");
+                }}
+                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer"
+              >
+                <span className="text-[#ffb5d7] font-mono block">
+                  admin / mas30admin
+                </span>
+                <span className="text-[#8a8a8a]">Admin General</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginUsername("caja1");
+                  setLoginPassword("caja2026");
+                }}
+                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer"
+              >
+                <span className="text-[#ffb5d7] font-mono block">
+                  caja1 / caja2026
+                </span>
+                <span className="text-[#8a8a8a]">Caja Transferencias</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-dark-background text-white min-h-screen py-12">
       <div className="container space-y-10">
-        {/* CABECERA ESTILO BRESH */}
+        {/* CABECERA ESTILO BRESH CON SESIÓN ACTIVA */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <p className="text-sm text-[#8a8a8a] mb-1">
-              MAS30 Producciones · Gestión Integral
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-[#AF2C75] text-white text-xs font-medium">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Operador activo: {currentUser.fullName} (@{currentUser.username})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logoutAdminUser();
+                  setCurrentUser(null);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm bg-[#1c1c1c] hover:bg-[#353535] text-xs text-white/70 hover:text-white cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Cerrar sesión
+              </button>
+            </div>
             <h1 className="text-2xl md:text-5xl font-normal">Administración</h1>
           </div>
 
@@ -432,6 +735,10 @@ export default function AdminDashboardPage() {
             {
               id: "reservas",
               label: `Reservas & Ventas (${orders.length})`,
+            },
+            {
+              id: "rendicion",
+              label: `Rendición Dinero & Usuarios (${adminUsers.length})`,
             },
             {
               id: "eventos",
@@ -536,9 +843,17 @@ export default function AdminDashboardPage() {
                             </span>
                           )}
                           {order.status === "APROBADA" && (
-                            <span className="px-2.5 py-1 rounded-sm bg-[#AF2C75] text-white text-xs font-medium">
-                              ✓ Autorizada ({orderTickets.length} QRs emitidos)
-                            </span>
+                            <>
+                              <span className="px-2.5 py-1 rounded-sm bg-[#AF2C75] text-white text-xs font-medium">
+                                ✓ Autorizada ({orderTickets.length} QRs emitidos)
+                              </span>
+                              <span className="px-2.5 py-1 rounded-sm bg-[#121212] border border-[#ffb5d7]/40 text-[#ffb5d7] text-xs font-medium">
+                                QR emitido por:{" "}
+                                {order.approvedByName ||
+                                  "Administrador General MAS30"}{" "}
+                                (@{order.approvedByUsername || "admin"})
+                              </span>
+                            </>
                           )}
                           {order.status === "RECHAZADA" && (
                             <span className="px-2.5 py-1 rounded-sm bg-red-950 text-red-300 text-xs font-medium">
@@ -654,7 +969,12 @@ export default function AdminDashboardPage() {
                     {isExpanded && orderTickets.length > 0 && (
                       <div className="pt-4 border-t border-white/10 space-y-3">
                         <p className="text-xs text-[#ffb5d7]">
-                          Códigos QR individuales emitidos para {order.orderCode}:
+                          Códigos QR individuales emitidos para {order.orderCode} por{" "}
+                          <strong>
+                            {order.approvedByName || "Administrador General MAS30"}{" "}
+                            (@{order.approvedByUsername || "admin"})
+                          </strong>
+                          :
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                           {orderTickets.map((t) => (
@@ -666,6 +986,386 @@ export default function AdminDashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB RENDICIÓN DE DINERO POR USUARIO & GESTIÓN DE OPERADORES */}
+        {activeTab === "rendicion" && (
+          <div className="space-y-10">
+            {/* CABECERA Y FILTRO DE RENDICIÓN */}
+            <div className="rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                    <Wallet className="w-4 h-4" />
+                    Control de Caja & Auditoría de QRs
+                  </div>
+                  <h2 className="text-2xl font-normal text-white">
+                    Rendición de Dinero por Usuario Emisor de QR
+                  </h2>
+                  <p className="text-xs text-[#8a8a8a]">
+                    Cada vez que un operador aprueba una transferencia o emite un
+                    acceso manual, queda anotado su usuario y el monto exacto a
+                    rendir.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={rendicionEventFilter}
+                    onChange={(e) => setRendicionEventFilter(e.target.value)}
+                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  >
+                    <option value="TODOS">Todos los Eventos (Global)</option>
+                    {events.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.title} ({ev.dateLabel})
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={handleExportRendicionCSV}
+                    className="px-4 py-2.5 rounded-[3px] bg-white text-black text-xs font-medium flex items-center gap-2 cursor-pointer hover:brightness-95"
+                  >
+                    <Download className="w-4 h-4" />
+                    Exportar Rendición CSV (Excel)
+                  </button>
+                </div>
+              </div>
+
+              {/* TARJETAS DE RENDICIÓN POR CADA USUARIO / OPERADOR */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {operatorSummaries.map((item) => (
+                  <div
+                    key={item.user.id}
+                    onClick={() =>
+                      setRendicionUserFilter(
+                        rendicionUserFilter === item.user.username
+                          ? "TODOS"
+                          : item.user.username
+                      )
+                    }
+                    className={`rounded-lg p-5 border transition-all cursor-pointer space-y-3 ${
+                      rendicionUserFilter === item.user.username
+                        ? "bg-[#121212] border-[#ffb5d7]"
+                        : "bg-[#121212]/70 border-[#353535] hover:border-white/40"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] font-mono text-[#ffb5d7] block">
+                          @{item.user.username} · {item.user.role}
+                        </span>
+                        <h3 className="text-base font-medium text-white">
+                          {item.user.fullName}
+                        </h3>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-white/80">
+                        {item.ordersCount} op.
+                      </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#353535]/80 flex items-baseline justify-between">
+                      <span className="text-xs text-[#8a8a8a]">
+                        Total a Rendir:
+                      </span>
+                      <span className="text-2xl font-medium text-[#ffb5d7]">
+                        {formatARS(item.totalMoneyToRender)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                      <div className="p-2 rounded bg-[#1c1c1c]">
+                        <span className="text-[#8a8a8a] block text-[10px]">
+                          QRs Cobrados ($10.000)
+                        </span>
+                        <strong className="text-white text-sm">
+                          {item.paidQRsCount} entradas
+                        </strong>
+                      </div>
+                      <div className="p-2 rounded bg-[#1c1c1c]">
+                        <span className="text-[#8a8a8a] block text-[10px]">
+                          QRs Cortesía ($0)
+                        </span>
+                        <strong className="text-white/80 text-sm">
+                          {item.courtesyQRsCount} free
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* TABLA DETALLADA DE AUDITORÍA DE CADA QR / ORDEN GENERADA */}
+              <div className="space-y-3 pt-4 border-t border-[#353535]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium text-white">
+                    Detalle de QRs y Cobros Anotados por Operador (
+                    {approvedOrdersForRendicion.length} registros)
+                  </h3>
+                  {rendicionUserFilter !== "TODOS" && (
+                    <button
+                      type="button"
+                      onClick={() => setRendicionUserFilter("TODOS")}
+                      className="text-xs text-[#ffb5d7] underline cursor-pointer"
+                    >
+                      Ver todos los usuarios
+                    </button>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border border-[#353535]">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#121212] text-[#8a8a8a] uppercase border-b border-[#353535]">
+                      <tr>
+                        <th className="py-3 px-4">Fecha / Hora</th>
+                        <th className="py-3 px-4">Usuario que generó QR</th>
+                        <th className="py-3 px-4">Orden</th>
+                        <th className="py-3 px-4">Evento</th>
+                        <th className="py-3 px-4">Cliente</th>
+                        <th className="py-3 px-4">Tipo</th>
+                        <th className="py-3 px-4 text-center">Cant. QRs</th>
+                        <th className="py-3 px-4 text-right">Monto a Rendir</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
+                      {approvedOrdersForRendicion.map((ord) => (
+                        <tr key={ord.id} className="hover:bg-[#1c1c1c]">
+                          <td className="py-3 px-4 text-[#8a8a8a] whitespace-nowrap">
+                            {ord.approvedAt
+                              ? new Date(ord.approvedAt).toLocaleString(
+                                  "es-AR",
+                                  {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )
+                              : "-"}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="font-medium text-white block">
+                              {ord.approvedByName ||
+                                "Administrador General MAS30"}
+                            </span>
+                            <span className="font-mono text-[11px] text-[#ffb5d7]">
+                              @{ord.approvedByUsername || "admin"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-white">
+                            {ord.orderCode}
+                          </td>
+                          <td className="py-3 px-4 text-white/90">
+                            {ord.eventTitle}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-white block">
+                              {ord.buyerName}
+                            </span>
+                            <span className="text-[11px] text-[#8a8a8a]">
+                              DNI {ord.buyerDni}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {ord.totalAmount === 0 ? (
+                              <span className="px-2 py-0.5 rounded bg-[#353535] text-white/80 text-[11px]">
+                                Cortesía ($0)
+                              </span>
+                            ) : ord.issueType === "VENTA_MANUAL_ADMIN" ? (
+                              <span className="px-2 py-0.5 rounded bg-[#AF2C75]/40 text-[#ffb5d7] text-[11px]">
+                                Venta Directa
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-[#AF2C75] text-white text-[11px]">
+                                Transferencia
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center font-medium text-white">
+                            {ord.quantity} QR(s)
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-[#ffb5d7] text-sm">
+                            {formatARS(ord.totalAmount)}
+                          </td>
+                        </tr>
+                      ))}
+                      {approvedOrdersForRendicion.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className="py-8 text-center text-[#8a8a8a]"
+                          >
+                            No hay órdenes ni QRs emitidos para este filtro.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* GESTIÓN DE USUARIOS Y CONTRASEÑAS DEL ADMIN */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+                <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                  <Users className="w-4 h-4" />
+                  Accesos con Contraseña
+                </div>
+                <h3 className="text-xl font-normal text-white">
+                  Crear / Actualizar Usuario Operador
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Creá una cuenta individual con contraseña para cada socio,
+                  cajero o RRPP. Todo QR que generen quedará anotado a su nombre.
+                </p>
+
+                {userSavedMsg && (
+                  <div className="p-3 rounded bg-[#353535] text-xs text-[#ffb5d7]">
+                    {userSavedMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateAdminUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Nombre y Apellido / Caja *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newUserFullName}
+                      onChange={(e) => setNewUserFullName(e.target.value)}
+                      placeholder="Ej: Lucas Gómez (Caja 3)"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Usuario (Login) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="Ej: lucas"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Contraseña *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newUserPassword}
+                        onChange={(e) => setNewUserPassword(e.target.value)}
+                        placeholder="Clave de acceso"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Rol / Función
+                    </label>
+                    <select
+                      value={newUserRole}
+                      onChange={(e) =>
+                        setNewUserRole(e.target.value as AdminUser["role"])
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    >
+                      <option value="CAJA_VENTAS">
+                        CAJA_VENTAS (Autoriza Transferencias y Cobra)
+                      </option>
+                      <option value="RRPP">
+                        RRPP (Ventas y Cortesías QR)
+                      </option>
+                      <option value="ADMIN_GENERAL">
+                        ADMIN_GENERAL (Control Total)
+                      </option>
+                      <option value="PUERTA">
+                        PUERTA (Escaneo QR en Entrada)
+                      </option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95"
+                  >
+                    Guardar Usuario con Contraseña
+                  </button>
+                </form>
+              </div>
+
+              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
+                <h3 className="text-xl font-normal text-white">
+                  Usuarios Habilitados ({adminUsers.length})
+                </h3>
+                <div className="space-y-3">
+                  {adminUsers.map((u) => (
+                    <div
+                      key={u.id}
+                      className="p-4 rounded-lg bg-[#121212] border border-[#353535] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-white">
+                            {u.fullName}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
+                            {u.role}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#8a8a8a] font-mono">
+                          Usuario: <strong className="text-white">@{u.username}</strong>{" "}
+                          · Contraseña:{" "}
+                          <strong className="text-[#ffb5d7]">{u.password}</strong>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewUserFullName(u.fullName);
+                            setNewUsername(u.username);
+                            setNewUserPassword(u.password);
+                            setNewUserRole(u.role);
+                          }}
+                          className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
+                        >
+                          Editar Clave
+                        </button>
+                        {u.username !== "admin" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              deleteAdminUser(u.id);
+                              syncAll();
+                            }}
+                            className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
+                            title="Eliminar usuario"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
