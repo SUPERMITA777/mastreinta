@@ -128,6 +128,13 @@ export default function HomePage() {
       {/* 1. CABECERA "Eventos" + PESTAÑAS RECTANGULARES (IDÉNTICO A BRESH.COM/EVENTS) */}
       <section className="flex flex-col md:flex-row md:items-center justify-between gap-6 container py-12">
         <div className="flex items-center gap-4">
+          <div className="h-10 sm:h-12 px-3 rounded-[4px] bg-[#f5f4f0] flex items-center justify-center overflow-hidden shadow-md">
+            <img
+              src="/logo-mas30.png"
+              alt="MASTREINTA"
+              className="h-full w-auto object-contain"
+            />
+          </div>
           <h1 className="text-2xl md:text-5xl font-normal tracking-tight">
             Eventos
           </h1>
@@ -474,12 +481,12 @@ export default function HomePage() {
         </div>
 
         <div className="container relative z-10 flex-1 flex flex-col items-center justify-center text-center space-y-6">
-          {/* Emblema Central MAS30 */}
-          <div className="w-64 sm:w-80 h-36 sm:h-44 rounded-md bg-[#f6f3ec] shadow-2xl flex items-center justify-center overflow-hidden">
+          {/* Emblema Central MASTREINTA */}
+          <div className="w-64 sm:w-80 h-28 sm:h-36 px-4 rounded-md bg-[#f5f4f0] shadow-2xl flex items-center justify-center overflow-hidden">
             <img
               src="/logo-mas30.png"
-              alt="MAS30 Club"
-              className="w-full h-full object-contain scale-125"
+              alt="MASTREINTA"
+              className="w-full h-full object-contain"
             />
           </div>
 

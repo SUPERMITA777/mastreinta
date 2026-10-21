@@ -1,12 +1,14 @@
 "use client";
 
 import {
+  AdminRoleDefinition,
   AdminUser,
   BankSettings,
   EventItem,
   InquiryItem,
   OrderAttendeeInput,
   OrderItem,
+  RolePermissions,
   SiteAnalytics,
   TicketQR,
 } from "./types";
@@ -18,21 +20,166 @@ const STORAGE_KEYS = {
   TICKETS: "mas30_tickets_v4",
   INQUIRIES: "mas30_inquiries_v3",
   SETTINGS: "mas30_settings_v3",
-  ADMIN_USERS: "mas30_admin_users_v1",
+  ADMIN_USERS: "mas30_admin_users_v2",
+  ADMIN_ROLES: "mas30_admin_roles_v1",
   ADMIN_SESSION: "mas30_admin_session_v1",
   ANALYTICS: "mas30_analytics_v1",
   VISITOR_KNOWN: "mas30_visitor_known_v1",
 };
 
+export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
+  {
+    id: "role-superadmin",
+    name: "SUPERADMIN",
+    label: "Superadministrador (Acceso Total)",
+    description:
+      "Acceso total a todos los eventos, gestión de usuarios, creación de roles, permisos y configuración global.",
+    isSystem: true,
+    permissions: {
+      canViewOrders: true,
+      canApproveOrders: true,
+      canIssueManualQR: true,
+      canManageEvents: true,
+      canDeleteEvents: true,
+      canViewAnalytics: true,
+      canViewTickets: true,
+      canViewRendicion: true,
+      canManageInquiries: true,
+      canManageSettings: true,
+      canUseScanner: true,
+      scannerOnly: false,
+      canResetScannedQR: true,
+    },
+  },
+  {
+    id: "role-admin",
+    name: "ADMIN",
+    label: "Administrador de Eventos Asignados",
+    description:
+      "Solo ve y administra los eventos que tiene asignados o que haya creado. No puede gestionar usuarios ni roles.",
+    isSystem: true,
+    permissions: {
+      canViewOrders: true,
+      canApproveOrders: true,
+      canIssueManualQR: true,
+      canManageEvents: true,
+      canDeleteEvents: false,
+      canViewAnalytics: true,
+      canViewTickets: true,
+      canViewRendicion: true,
+      canManageInquiries: true,
+      canManageSettings: false,
+      canUseScanner: true,
+      scannerOnly: false,
+      canResetScannedQR: true,
+    },
+  },
+  {
+    id: "role-caja",
+    name: "CAJA_VENTAS",
+    label: "Caja & Ventas (Eventos Asignados)",
+    description:
+      "Verifica pagos, aprueba órdenes y emite QRs únicamente de los eventos que tiene asignados.",
+    isSystem: false,
+    permissions: {
+      canViewOrders: true,
+      canApproveOrders: true,
+      canIssueManualQR: true,
+      canManageEvents: false,
+      canDeleteEvents: false,
+      canViewAnalytics: false,
+      canViewTickets: true,
+      canViewRendicion: true,
+      canManageInquiries: false,
+      canManageSettings: false,
+      canUseScanner: true,
+      scannerOnly: false,
+      canResetScannedQR: false,
+    },
+  },
+  {
+    id: "role-rrpp",
+    name: "RRPP",
+    label: "RRPP / Promoción (Eventos Asignados)",
+    description:
+      "Emite accesos manuales/cortesías y visualiza reservas de sus eventos asignados.",
+    isSystem: false,
+    permissions: {
+      canViewOrders: true,
+      canApproveOrders: false,
+      canIssueManualQR: true,
+      canManageEvents: false,
+      canDeleteEvents: false,
+      canViewAnalytics: true,
+      canViewTickets: false,
+      canViewRendicion: true,
+      canManageInquiries: false,
+      canManageSettings: false,
+      canUseScanner: false,
+      scannerOnly: false,
+      canResetScannedQR: false,
+    },
+  },
+  {
+    id: "role-lector-qr",
+    name: "LECTOR_QR",
+    label: "Lector QR Puerta (Solo Validar Ingresos)",
+    description:
+      "Acceso exclusivo al Lector QR de Puerta. Solamente puede validar códigos QR y códigos de 4 dígitos de los asistentes.",
+    isSystem: true,
+    permissions: {
+      canViewOrders: false,
+      canApproveOrders: false,
+      canIssueManualQR: false,
+      canManageEvents: false,
+      canDeleteEvents: false,
+      canViewAnalytics: false,
+      canViewTickets: false,
+      canViewRendicion: false,
+      canManageInquiries: false,
+      canManageSettings: false,
+      canUseScanner: true,
+      scannerOnly: true,
+      canResetScannedQR: false,
+    },
+  },
+];
+
 export const INITIAL_ADMIN_USERS: AdminUser[] = [
+  {
+    id: "usr-superadmin-1",
+    username: "superadmin",
+    password: "supermas30",
+    fullName: "Superadministrador MASTREINTA",
+    role: "SUPERADMIN",
+    assignedEventIds: [],
+    active: true,
+    createdAt: "2026-10-19T11:00:00Z",
+  },
   {
     id: "usr-admin-1",
     username: "admin",
     password: "mas30admin",
-    fullName: "Administrador General MAS30",
-    role: "ADMIN_GENERAL",
+    fullName: "Administrador de Eventos",
+    role: "ADMIN",
+    assignedEventIds: ["evt-halloween-3110"],
     active: true,
     createdAt: "2026-10-19T12:00:00Z",
+  },
+  {
+    id: "usr-lector-1",
+    username: "lector",
+    password: "lector2026",
+    fullName: "Lector QR Puerta · Validador",
+    role: "LECTOR_QR",
+    assignedEventIds: [
+      "evt-halloween-3110",
+      "evt-pena-mastreinta-0612",
+      "evt-byebye-2026-2612",
+      "evt-fiesta-calor-0901",
+    ],
+    active: true,
+    createdAt: "2026-10-19T12:02:00Z",
   },
   {
     id: "usr-caja-1",
@@ -40,24 +187,17 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
     password: "caja2026",
     fullName: "Caja 1 · Verificación Transferencias",
     role: "CAJA_VENTAS",
+    assignedEventIds: ["evt-halloween-3110"],
     active: true,
     createdAt: "2026-10-19T12:05:00Z",
-  },
-  {
-    id: "usr-caja-2",
-    username: "caja2",
-    password: "caja2026",
-    fullName: "Caja 2 · Ventas & Accesos",
-    role: "CAJA_VENTAS",
-    active: true,
-    createdAt: "2026-10-19T12:10:00Z",
   },
   {
     id: "usr-rrpp-1",
     username: "rrpp1",
     password: "rrpp2026",
-    fullName: "RRPP 1 · Promoción MAS30",
+    fullName: "RRPP 1 · Promoción MASTREINTA",
     role: "RRPP",
+    assignedEventIds: ["evt-halloween-3110"],
     active: true,
     createdAt: "2026-10-19T12:15:00Z",
   },
@@ -66,7 +206,13 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
     username: "puerta",
     password: "puerta2026",
     fullName: "Operador Puerta Principal",
-    role: "PUERTA",
+    role: "LECTOR_QR",
+    assignedEventIds: [
+      "evt-halloween-3110",
+      "evt-pena-mastreinta-0612",
+      "evt-byebye-2026-2612",
+      "evt-fiesta-calor-0901",
+    ],
     active: true,
     createdAt: "2026-10-19T12:20:00Z",
   },
@@ -405,6 +551,7 @@ export async function pushToCloudStore(
       inquiries: getInquiries(),
       settings: getBankSettings(),
       adminUsers: getAdminUsers(),
+      adminRoles: getAdminRoles(),
     };
     const res = await fetch("/api/cloud-store", {
       method: "POST",
@@ -497,7 +644,12 @@ export async function syncFromCloudStore(): Promise<void> {
     );
     applyKey(STORAGE_KEYS.INQUIRIES, st.inquiries);
     applyKey(STORAGE_KEYS.SETTINGS, st.settings);
-    applyKey(STORAGE_KEYS.ADMIN_USERS, st.adminUsers);
+    if (Array.isArray(st.adminUsers)) {
+      applyKey(STORAGE_KEYS.ADMIN_USERS, normalizeAdminUsersList(st.adminUsers));
+    }
+    if (Array.isArray(st.adminRoles)) {
+      applyKey(STORAGE_KEYS.ADMIN_ROLES, normalizeAdminRolesList(st.adminRoles));
+    }
     applyKey(STORAGE_KEYS.ANALYTICS, st.analytics);
 
     isApplyingCloudState = false;
@@ -582,17 +734,49 @@ export function saveEvents(events: EventItem[]) {
   void pushToCloudStore({ events });
 }
 
-export async function upsertEvent(event: EventItem): Promise<EventItem[]> {
+export async function upsertEvent(
+  event: EventItem,
+  creatorUsername?: string
+): Promise<EventItem[]> {
   const current = getEvents();
-  const exists = current.some((e) => e.id === event.id);
-  const updated = exists
-    ? current.map((e) => (e.id === event.id ? event : e))
-    : [event, ...current];
+  const existing = current.find((e) => e.id === event.id);
+  const finalEvent: EventItem = {
+    ...event,
+    createdByUsername:
+      event.createdByUsername ||
+      existing?.createdByUsername ||
+      creatorUsername ||
+      undefined,
+  };
+  const updated = existing
+    ? current.map((e) => (e.id === finalEvent.id ? finalEvent : e))
+    : [finalEvent, ...current];
   try {
     localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
   } catch {
     // ignore local quota
   }
+
+  // Si lo creó un usuario no-superadmin, se asegura de asignárselo automáticamente
+  if (creatorUsername) {
+    const users = getAdminUsers();
+    const creator = users.find(
+      (u) => u.username.toLowerCase() === creatorUsername.toLowerCase()
+    );
+    if (creator && creator.role !== "SUPERADMIN") {
+      const assigned = new Set(creator.assignedEventIds || []);
+      if (!assigned.has(finalEvent.id)) {
+        assigned.add(finalEvent.id);
+        const updatedUsers = users.map((u) =>
+          u.id === creator.id
+            ? { ...u, assignedEventIds: Array.from(assigned) }
+            : u
+        );
+        saveAdminUsers(updatedUsers);
+      }
+    }
+  }
+
   notifyStoreUpdate();
   await pushToCloudStore({ events: updated });
 
@@ -1378,8 +1562,184 @@ export function saveBankSettings(settings: BankSettings): void {
   void pushToCloudStore({ settings });
 }
 
+function normalizeAdminRolesList(
+  rawRoles: AdminRoleDefinition[]
+): AdminRoleDefinition[] {
+  const map = new Map<string, AdminRoleDefinition>();
+  for (const r of INITIAL_ADMIN_ROLES) {
+    map.set(r.name, r);
+  }
+  if (Array.isArray(rawRoles)) {
+    for (const r of rawRoles) {
+      if (r && r.name) {
+        if (r.name === "SUPERADMIN") {
+          map.set("SUPERADMIN", INITIAL_ADMIN_ROLES[0]);
+        } else {
+          map.set(r.name, r);
+        }
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+function normalizeAdminUsersList(rawUsers: AdminUser[]): AdminUser[] {
+  const list: AdminUser[] = Array.isArray(rawUsers)
+    ? rawUsers.map((u) => {
+        let role = u.role || "ADMIN";
+        if (role === "ADMIN_GENERAL") role = "ADMIN";
+        if (role === "PUERTA") role = "LECTOR_QR";
+        return {
+          ...u,
+          role,
+          assignedEventIds: Array.isArray(u.assignedEventIds)
+            ? u.assignedEventIds
+            : u.username === "admin"
+            ? ["evt-halloween-3110"]
+            : u.role === "PUERTA" || role === "LECTOR_QR"
+            ? [
+                "evt-halloween-3110",
+                "evt-pena-mastreinta-0612",
+                "evt-byebye-2026-2612",
+                "evt-fiesta-calor-0901",
+              ]
+            : ["evt-halloween-3110"],
+        };
+      })
+    : [];
+
+  // Garantizar que superadmin y lector siempre existan
+  if (!list.some((u) => u.username.toLowerCase() === "superadmin")) {
+    list.unshift(INITIAL_ADMIN_USERS[0]);
+  }
+  if (!list.some((u) => u.username.toLowerCase() === "lector")) {
+    const lectorDefault = INITIAL_ADMIN_USERS.find(
+      (u) => u.username === "lector"
+    );
+    if (lectorDefault) list.push(lectorDefault);
+  }
+  return list;
+}
+
+export function getAdminRoles(): AdminRoleDefinition[] {
+  if (typeof window === "undefined") return INITIAL_ADMIN_ROLES;
+  ensureCloudSyncStarted();
+  const raw = localStorage.getItem(STORAGE_KEYS.ADMIN_ROLES);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_KEYS.ADMIN_ROLES,
+      JSON.stringify(INITIAL_ADMIN_ROLES)
+    );
+    return INITIAL_ADMIN_ROLES;
+  }
+  try {
+    return normalizeAdminRolesList(JSON.parse(raw));
+  } catch {
+    return INITIAL_ADMIN_ROLES;
+  }
+}
+
+export function saveAdminRoles(roles: AdminRoleDefinition[]): void {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeAdminRolesList(roles);
+  localStorage.setItem(STORAGE_KEYS.ADMIN_ROLES, JSON.stringify(normalized));
+  notifyStoreUpdate();
+  void pushToCloudStore({ adminRoles: normalized });
+}
+
+export function upsertAdminRole(
+  roleDef: AdminRoleDefinition
+): AdminRoleDefinition[] {
+  const current = getAdminRoles();
+  const cleanName = roleDef.name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_");
+  const finalRole: AdminRoleDefinition = {
+    ...roleDef,
+    name: cleanName,
+  };
+  const exists = current.some(
+    (r) => r.id === finalRole.id || r.name === finalRole.name
+  );
+  const updated = exists
+    ? current.map((r) =>
+        r.id === finalRole.id || r.name === finalRole.name ? finalRole : r
+      )
+    : [...current, finalRole];
+  saveAdminRoles(updated);
+  return updated;
+}
+
+export function deleteAdminRole(roleId: string): AdminRoleDefinition[] {
+  const current = getAdminRoles();
+  const target = current.find((r) => r.id === roleId);
+  if (!target || target.isSystem || target.name === "SUPERADMIN") {
+    return current;
+  }
+  const updated = current.filter((r) => r.id !== roleId);
+  saveAdminRoles(updated);
+  return updated;
+}
+
+export function isSuperAdminUser(
+  user: AdminUser | null | undefined
+): boolean {
+  return Boolean(user && user.role === "SUPERADMIN");
+}
+
+export function getUserPermissions(
+  user: AdminUser | null | undefined
+): RolePermissions {
+  const noPerms: RolePermissions = {
+    canViewOrders: false,
+    canApproveOrders: false,
+    canIssueManualQR: false,
+    canManageEvents: false,
+    canDeleteEvents: false,
+    canViewAnalytics: false,
+    canViewTickets: false,
+    canViewRendicion: false,
+    canManageInquiries: false,
+    canManageSettings: false,
+    canUseScanner: false,
+    scannerOnly: false,
+    canResetScannedQR: false,
+  };
+  if (!user || !user.active) return noPerms;
+  if (user.role === "SUPERADMIN") {
+    return INITIAL_ADMIN_ROLES[0].permissions;
+  }
+  const roles = getAdminRoles();
+  const foundRole =
+    roles.find((r) => r.name === user.role) ||
+    INITIAL_ADMIN_ROLES.find((r) => r.name === "ADMIN")!;
+  return {
+    ...foundRole.permissions,
+    ...(user.customPermissions || {}),
+  };
+}
+
+export function canUserAccessEvent(
+  user: AdminUser | null | undefined,
+  event: EventItem
+): boolean {
+  if (!user || !user.active) return false;
+  if (isSuperAdminUser(user)) return true;
+  const isCreator = Boolean(
+    event.createdByUsername &&
+      event.createdByUsername.trim().toLowerCase() ===
+        user.username.trim().toLowerCase()
+  );
+  const assigned = Array.isArray(user.assignedEventIds)
+    ? user.assignedEventIds
+    : [];
+  return isCreator || assigned.includes(event.id);
+}
+
 export function getAdminUsers(): AdminUser[] {
   if (typeof window === "undefined") return INITIAL_ADMIN_USERS;
+  ensureCloudSyncStarted();
   const raw = localStorage.getItem(STORAGE_KEYS.ADMIN_USERS);
   if (!raw) {
     localStorage.setItem(
@@ -1389,7 +1749,7 @@ export function getAdminUsers(): AdminUser[] {
     return INITIAL_ADMIN_USERS;
   }
   try {
-    return JSON.parse(raw);
+    return normalizeAdminUsersList(JSON.parse(raw));
   } catch {
     return INITIAL_ADMIN_USERS;
   }
@@ -1397,16 +1757,26 @@ export function getAdminUsers(): AdminUser[] {
 
 export function saveAdminUsers(users: AdminUser[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEYS.ADMIN_USERS, JSON.stringify(users));
+  const normalized = normalizeAdminUsersList(users);
+  localStorage.setItem(STORAGE_KEYS.ADMIN_USERS, JSON.stringify(normalized));
   notifyStoreUpdate();
-  void pushToCloudStore({ adminUsers: users });
+  void pushToCloudStore({ adminUsers: normalized });
 }
 
 export function upsertAdminUser(user: AdminUser): AdminUser[] {
   const current = getAdminUsers();
-  const exists = current.some((u) => u.id === user.id);
+  const exists = current.some(
+    (u) =>
+      u.id === user.id ||
+      u.username.trim().toLowerCase() === user.username.trim().toLowerCase()
+  );
   const updated = exists
-    ? current.map((u) => (u.id === user.id ? user : u))
+    ? current.map((u) =>
+        u.id === user.id ||
+        u.username.trim().toLowerCase() === user.username.trim().toLowerCase()
+          ? user
+          : u
+      )
     : [...current, user];
   saveAdminUsers(updated);
   return updated;
@@ -1414,7 +1784,10 @@ export function upsertAdminUser(user: AdminUser): AdminUser[] {
 
 export function deleteAdminUser(userId: string): AdminUser[] {
   const current = getAdminUsers();
-  if (current.length <= 1) return current;
+  const target = current.find((u) => u.id === userId);
+  if (!target || target.username.toLowerCase() === "superadmin") {
+    return current;
+  }
   const updated = current.filter((u) => u.id !== userId);
   saveAdminUsers(updated);
   return updated;
@@ -1425,7 +1798,14 @@ export function getCurrentAdminSession(): AdminUser | null {
   const raw = localStorage.getItem(STORAGE_KEYS.ADMIN_SESSION);
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const sessionUser = JSON.parse(raw) as AdminUser;
+    const latestUsers = getAdminUsers();
+    const fresh = latestUsers.find(
+      (u) =>
+        u.id === sessionUser.id ||
+        u.username.toLowerCase() === sessionUser.username.toLowerCase()
+    );
+    return fresh && fresh.active ? fresh : sessionUser;
   } catch {
     return null;
   }

@@ -51,6 +51,7 @@ export interface EventItem {
   instagramLabel?: string; // Texto del botón de Instagram
   tiktokLabel?: string; // Texto del botón de TikTok / otra red
   mapQuery?: string; // Búsqueda personalizada para el mapa (si se deja vacío usa predio + dirección)
+  createdByUsername?: string; // Usuario que creó el evento
   createdAt: string;
 }
 
@@ -59,12 +60,39 @@ export interface OrderAttendeeInput {
   dni: string;
 }
 
+export interface RolePermissions {
+  canViewOrders: boolean;
+  canApproveOrders: boolean;
+  canIssueManualQR: boolean;
+  canManageEvents: boolean;
+  canDeleteEvents: boolean;
+  canViewAnalytics: boolean;
+  canViewTickets: boolean;
+  canViewRendicion: boolean;
+  canManageInquiries: boolean;
+  canManageSettings: boolean;
+  canUseScanner: boolean;
+  scannerOnly: boolean;
+  canResetScannedQR: boolean;
+}
+
+export interface AdminRoleDefinition {
+  id: string;
+  name: string;
+  label: string;
+  description?: string;
+  isSystem?: boolean;
+  permissions: RolePermissions;
+}
+
 export interface AdminUser {
   id: string;
   username: string;
   password: string;
   fullName: string;
-  role: "ADMIN_GENERAL" | "CAJA_VENTAS" | "RRPP" | "PUERTA";
+  role: string;
+  assignedEventIds?: string[];
+  customPermissions?: Partial<RolePermissions>;
   active: boolean;
   createdAt: string;
 }

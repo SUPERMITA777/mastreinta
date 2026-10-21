@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
+  Check,
   CheckCircle2,
   Clock,
   Database,
@@ -11,6 +12,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  KeyRound,
   Lock,
   LogOut,
   Mail,
@@ -18,9 +20,13 @@ import {
   Plus,
   QrCode,
   Search,
+  Settings,
+  ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   Upload,
+  UserCheck,
   UserPlus,
   Users,
   Wallet,
@@ -28,12 +34,15 @@ import {
 } from "lucide-react";
 import {
   approveOrderAndGenerateQRs,
+  canUserAccessEvent,
   createManualAdminAccess,
+  deleteAdminRole,
   deleteAdminUser,
   deleteEvent,
   deleteInquiry,
   deleteOrder,
   formatARS,
+  getAdminRoles,
   getAdminUsers,
   getAnalytics,
   getBankSettings,
@@ -42,29 +51,37 @@ import {
   getInquiries,
   getOrders,
   getTickets,
+  getUserPermissions,
+  INITIAL_ADMIN_ROLES,
   INITIAL_ADMIN_USERS,
   INITIAL_ANALYTICS,
   INITIAL_EVENTS,
   INITIAL_SETTINGS,
   isEventVisiblePublicly,
+  isSuperAdminUser,
   loginAdminUser,
   logoutAdminUser,
   pushToCloudStore,
   rejectOrder,
   replyInquiry,
   resetAnalytics,
+  saveAdminRoles,
+  saveAdminUsers,
   saveBankSettings,
   toggleEventHidden,
+  upsertAdminRole,
   upsertAdminUser,
   upsertEvent,
   upsertInquiry,
 } from "@/lib/store";
 import {
+  AdminRoleDefinition,
   AdminUser,
   BankSettings,
   EventItem,
   InquiryItem,
   OrderItem,
+  RolePermissions,
   SiteAnalytics,
   TicketQR,
   TicketTier,
@@ -90,6 +107,7 @@ type AdminTab =
   | "visitas"
   | "tickets"
   | "consultas"
+  | "usuarios_roles"
   | "configuracion";
 
 export default function AdminDashboardPage() {
@@ -99,21 +117,49 @@ export default function AdminDashboardPage() {
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [adminUsers, setAdminUsers] =
     useState<AdminUser[]>(INITIAL_ADMIN_USERS);
+  const [adminRoles, setAdminRoles] =
+    useState<AdminRoleDefinition[]>(INITIAL_ADMIN_ROLES);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  // Filtros de Rendición de Cuentas y Creación de Usuarios
+  // Gestión Superadmin de Roles y Permisos
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [roleFormName, setRoleFormName] = useState("");
+  const [roleFormLabel, setRoleFormLabel] = useState("");
+  const [roleFormDesc, setRoleFormDesc] = useState("");
+  const [roleFormPermissions, setRoleFormPermissions] =
+    useState<RolePermissions>({
+      canViewOrders: true,
+      canApproveOrders: false,
+      canIssueManualQR: false,
+      canManageEvents: false,
+      canDeleteEvents: false,
+      canViewAnalytics: false,
+      canViewTickets: false,
+      canViewRendicion: false,
+      canManageInquiries: false,
+      canManageSettings: false,
+      canUseScanner: false,
+      scannerOnly: false,
+      canResetScannedQR: false,
+    });
+  const [roleSavedMsg, setRoleSavedMsg] = useState("");
+
+  // Gestión de Usuarios y Asignación de Eventos por el Superadmin
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [newUserFullName, setNewUserFullName] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<string>("ADMIN");
+  const [userAssignedEventIds, setUserAssignedEventIds] = useState<string[]>([]);
+  const [userSavedMsg, setUserSavedMsg] = useState("");
+
+  // Filtros de Rendición de Cuentas
   const [rendicionEventFilter, setRendicionEventFilter] =
     useState<string>("TODOS");
   const [rendicionUserFilter, setRendicionUserFilter] =
     useState<string>("TODOS");
-  const [newUserFullName, setNewUserFullName] = useState("");
-  const [newUsername, setNewUsername] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] =
-    useState<AdminUser["role"]>("CAJA_VENTAS");
-  const [userSavedMsg, setUserSavedMsg] = useState("");
 
   const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
   const [orders, setOrders] = useState<OrderItem[]>([]);
@@ -271,6 +317,7 @@ export default function AdminDashboardPage() {
     setBankSettings(getBankSettings());
     setAnalytics(getAnalytics());
     setAdminUsers(getAdminUsers());
+    setAdminRoles(getAdminRoles());
     setCurrentUser(getCurrentAdminSession());
     if (typeof window !== "undefined") {
       setSupabaseKeyInput(
@@ -295,21 +342,59 @@ export default function AdminDashboardPage() {
     };
   }, []);
 
-  const pendingOrdersCount = orders.filter(
+  const isSuper = isSuperAdminUser(currentUser);
+  const permissions = getUserPermissions(currentUser);
+
+  // Filtrar eventos accesibles para el usuario conectado (Superadmin ve todos; los demás solo los asignados o creados)
+  const visibleEvents = events.filter((ev) =>
+    canUserAccessEvent(currentUser, ev)
+  );
+  const visibleEventIds = new Set(visibleEvents.map((e) => e.id));
+
+  // Filtrar órdenes, tickets y consultas según los eventos accesibles
+  const visibleOrders = orders.filter((o) => visibleEventIds.has(o.eventId));
+  const visibleTickets = tickets.filter((t) => visibleEventIds.has(t.eventId));
+  const visibleInquiries = inquiries.filter(
+    (i) => !i.eventId || i.eventId === "ALL" || visibleEventIds.has(i.eventId)
+  );
+
+  const pendingOrdersCount = visibleOrders.filter(
     (o) => o.status === "PENDIENTE"
   ).length;
-  const approvedRevenue = orders
+  const approvedRevenue = visibleOrders
     .filter((o) => o.status === "APROBADA")
     .reduce((acc, o) => acc + o.totalAmount, 0);
-  const pendingRevenue = orders
+  const pendingRevenue = visibleOrders
     .filter((o) => o.status === "PENDIENTE")
     .reduce((acc, o) => acc + o.totalAmount, 0);
-  const scannedTicketsCount = tickets.filter(
+  const scannedTicketsCount = visibleTickets.filter(
     (t) => t.status === "USADO"
   ).length;
-  const pendingInquiriesCount = inquiries.filter(
+  const pendingInquiriesCount = visibleInquiries.filter(
     (i) => i.status === "PENDIENTE"
   ).length;
+
+  // Ajuste automático de pestaña activa según permisos del rol conectado
+  useEffect(() => {
+    if (!currentUser) return;
+    const allowedTabs: { id: AdminTab; allowed: boolean }[] = [
+      { id: "reservas", allowed: permissions.canViewOrders },
+      { id: "rendicion", allowed: permissions.canViewRendicion },
+      { id: "eventos", allowed: permissions.canManageEvents },
+      { id: "visitas", allowed: permissions.canViewAnalytics },
+      { id: "tickets", allowed: permissions.canViewTickets },
+      { id: "consultas", allowed: permissions.canManageInquiries },
+      { id: "usuarios_roles", allowed: isSuper },
+      { id: "configuracion", allowed: permissions.canManageSettings },
+    ];
+    const currentIsAllowed = allowedTabs.find((t) => t.id === activeTab)?.allowed;
+    if (!currentIsAllowed) {
+      const firstAllowed = allowedTabs.find((t) => t.allowed);
+      if (firstAllowed) {
+        setActiveTab(firstAllowed.id);
+      }
+    }
+  }, [currentUser, permissions, isSuper, activeTab]);
 
   const handleSendOrderEmail = async (
     order: OrderItem,
@@ -452,6 +537,34 @@ export default function AdminDashboardPage() {
     syncAll();
   };
 
+  const handleSaveRole = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roleFormName.trim() || !roleFormLabel.trim()) return;
+    const cleanName = roleFormName
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]/g, "_");
+    const roleDef: AdminRoleDefinition = {
+      id: editingRoleId || `role-${Date.now()}`,
+      name: cleanName,
+      label: roleFormLabel.trim(),
+      description: roleFormDesc.trim(),
+      isSystem:
+        cleanName === "SUPERADMIN" ||
+        cleanName === "ADMIN" ||
+        cleanName === "LECTOR_QR",
+      permissions: roleFormPermissions,
+    };
+    upsertAdminRole(roleDef);
+    syncAll();
+    setEditingRoleId(null);
+    setRoleFormName("");
+    setRoleFormLabel("");
+    setRoleFormDesc("");
+    setRoleSavedMsg(`✓ Rol ${roleDef.label} guardado.`);
+    setTimeout(() => setRoleSavedMsg(""), 3500);
+  };
+
   const handleCreateAdminUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (
@@ -464,21 +577,32 @@ export default function AdminDashboardPage() {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_.-]/g, "");
-    const existing = adminUsers.find((u) => u.username === cleanUsername);
+    const existing = adminUsers.find(
+      (u) =>
+        u.id === editingUserId ||
+        u.username.toLowerCase() === cleanUsername
+    );
     const created: AdminUser = {
-      id: existing ? existing.id : `usr-${Date.now()}`,
+      id: editingUserId || (existing ? existing.id : `usr-${Date.now()}`),
       username: cleanUsername,
       password: newUserPassword.trim(),
       fullName: newUserFullName.trim(),
       role: newUserRole,
+      assignedEventIds:
+        newUserRole === "SUPERADMIN"
+          ? []
+          : userAssignedEventIds,
       active: true,
       createdAt: existing ? existing.createdAt : new Date().toISOString(),
     };
     upsertAdminUser(created);
     syncAll();
+    setEditingUserId(null);
     setNewUserFullName("");
     setNewUsername("");
     setNewUserPassword("");
+    setNewUserRole("ADMIN");
+    setUserAssignedEventIds([]);
     setUserSavedMsg(
       `✓ Usuario @${cleanUsername} (${created.fullName}) guardado con éxito.`
     );
@@ -607,10 +731,15 @@ export default function AdminDashboardPage() {
       instagramUrl:
         evInstagramUrl.trim() || "https://instagram.com/mas30.eventos",
       tiktokUrl: evTiktokUrl.trim() || undefined,
-      createdAt: new Date().toISOString(),
+      createdByUsername: editingEventId
+        ? events.find((x) => x.id === editingEventId)?.createdByUsername || currentUser?.username
+        : currentUser?.username,
+      createdAt: editingEventId
+        ? events.find((x) => x.id === editingEventId)?.createdAt || new Date().toISOString()
+        : new Date().toISOString(),
     };
 
-    await upsertEvent(newEvent);
+    await upsertEvent(newEvent, currentUser?.username);
     syncAll();
     setEditingEventId(null);
     setEvTitle("");
@@ -700,27 +829,13 @@ export default function AdminDashboardPage() {
     a.click();
   };
 
-  // Órdenes aprobadas filtradas para la Rendición de Dinero
-  const approvedOrdersForRendicion = orders.filter((o) => {
-    if (o.status !== "APROBADA") return false;
-    if (
-      rendicionEventFilter !== "TODOS" &&
-      o.eventId !== rendicionEventFilter
-    ) {
-      return false;
-    }
-    if (
-      rendicionUserFilter !== "TODOS" &&
-      (o.approvedByUsername || "admin") !== rendicionUserFilter
-    ) {
-      return false;
-    }
-    return true;
-  });
-
   // Resumen de Rendición agrupado por cada Usuario / Operador
-  const operatorSummaries = adminUsers.map((usr) => {
-    const userOrders = orders.filter(
+  const usersForRendicion = isSuper
+    ? adminUsers
+    : adminUsers.filter((u) => u.username === currentUser?.username);
+
+  const operatorSummaries = usersForRendicion.map((usr) => {
+    const userOrders = visibleOrders.filter(
       (o) =>
         o.status === "APROBADA" &&
         (o.approvedByUsername || "admin") === usr.username &&
@@ -745,6 +860,23 @@ export default function AdminDashboardPage() {
       totalQRsCount: paidQRsCount + courtesyQRsCount,
       totalMoneyToRender,
     };
+  });
+
+  const approvedOrdersForRendicion = visibleOrders.filter((o) => {
+    if (o.status !== "APROBADA") return false;
+    if (
+      rendicionEventFilter !== "TODOS" &&
+      o.eventId !== rendicionEventFilter
+    ) {
+      return false;
+    }
+    if (
+      rendicionUserFilter !== "TODOS" &&
+      (o.approvedByUsername || "admin") !== rendicionUserFilter
+    ) {
+      return false;
+    }
+    return true;
   });
 
   const handleExportRendicionCSV = () => {
@@ -787,7 +919,7 @@ export default function AdminDashboardPage() {
     a.click();
   };
 
-  const filteredOrders = orders.filter((o) => {
+  const filteredOrders = visibleOrders.filter((o) => {
     const matchStatus =
       orderStatusFilter === "TODOS" || o.status === orderStatusFilter;
     const q = orderSearch.trim().toLowerCase();
@@ -803,7 +935,7 @@ export default function AdminDashboardPage() {
   });
 
   const selectedManualEvent =
-    events.find((e) => e.id === manualEventId) || events[0];
+    visibleEvents.find((e) => e.id === manualEventId) || visibleEvents[0];
 
   // PANTALLA DE LOGIN CON CONTRASEÑA PARA OPERADORES / ADMIN
   if (!currentUser) {
@@ -811,18 +943,21 @@ export default function AdminDashboardPage() {
       <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-md rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 space-y-6 shadow-2xl">
           <div className="space-y-2 text-center">
-            <div className="w-12 h-12 rounded-full bg-[#AF2C75]/30 border border-[#ffb5d7]/40 flex items-center justify-center mx-auto text-[#ffb5d7]">
-              <Lock className="w-5 h-5" />
+            <div className="h-10 px-3 rounded bg-[#f5f4f0] inline-flex items-center justify-center mx-auto mb-1 overflow-hidden">
+              <img
+                src="/logo-mas30.png"
+                alt="MASTREINTA"
+                className="h-full w-auto object-contain"
+              />
             </div>
             <p className="text-xs uppercase tracking-widest text-[#ffb5d7]">
-              MAS30 Producciones · Acceso Restringido
+              Panel de Control · Acceso Restringido
             </p>
             <h1 className="text-2xl font-normal text-white">
-              Ingreso de Operadores & Caja
+              Ingreso al Sistema
             </h1>
             <p className="text-xs text-[#8a8a8a]">
-              Cada código QR autorizado o emitido quedará registrado a nombre de
-              tu usuario para la rendición de dinero.
+              Ingresá con tu usuario y contraseña asignada por el Superadmin.
             </p>
           </div>
 
@@ -835,14 +970,14 @@ export default function AdminDashboardPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs text-[#8a8a8a] mb-1">
-                Usuario Operador
+                Usuario
               </label>
               <input
                 type="text"
                 required
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
-                placeholder="Ej: admin, caja1, rrpp1..."
+                placeholder="superadmin, admin, lector..."
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
               />
             </div>
@@ -865,43 +1000,144 @@ export default function AdminDashboardPage() {
               type="submit"
               className="w-full py-3 rounded-[3px] bg-soft-pink hover:brightness-95 text-[#1c1c1c] font-medium text-sm cursor-pointer transition-all"
             >
-              Ingresar al Panel MAS30
+              Ingresar al Panel
             </button>
           </form>
 
           <div className="pt-4 border-t border-[#353535] space-y-2">
             <p className="text-[11px] text-[#8a8a8a]">
-              Usuarios iniciales preconfigurados (podés crear nuevos o cambiar
-              claves dentro del panel):
+              Accesos iniciales configurados:
             </p>
-            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+            <div className="grid grid-cols-1 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginUsername("superadmin");
+                  setLoginPassword("supermas30");
+                }}
+                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#ffb5d7]/40 cursor-pointer flex items-center justify-between"
+              >
+                <div>
+                  <span className="text-[#ffb5d7] font-mono font-medium block">
+                    superadmin / supermas30
+                  </span>
+                  <span className="text-white/80">
+                    Superadmin · Control Total & Gestión de Roles
+                  </span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#AF2C75] text-white">
+                  SUPERADMIN
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   setLoginUsername("admin");
                   setLoginPassword("mas30admin");
                 }}
-                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer"
+                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer flex items-center justify-between"
               >
-                <span className="text-[#ffb5d7] font-mono block">
-                  admin / mas30admin
+                <div>
+                  <span className="text-white font-mono block">
+                    admin / mas30admin
+                  </span>
+                  <span className="text-[#8a8a8a]">
+                    Admin · Solo sus eventos asignados
+                  </span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#353535] text-white/70">
+                  ADMIN
                 </span>
-                <span className="text-[#8a8a8a]">Admin General</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setLoginUsername("caja1");
-                  setLoginPassword("caja2026");
+                  setLoginUsername("lector");
+                  setLoginPassword("lector2026");
                 }}
-                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer"
+                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer flex items-center justify-between"
               >
-                <span className="text-[#ffb5d7] font-mono block">
-                  caja1 / caja2026
+                <div>
+                  <span className="text-white font-mono block">
+                    lector / lector2026
+                  </span>
+                  <span className="text-[#8a8a8a]">
+                    Lector QR · Solo validar usuarios en puerta
+                  </span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300">
+                  LECTOR_QR
                 </span>
-                <span className="text-[#8a8a8a]">Caja Transferencias</span>
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ACCESO EXCLUSIVO LECTOR QR (para usuarios con rol LECTOR_QR o scannerOnly)
+  if (currentUser && permissions.scannerOnly) {
+    return (
+      <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-lg rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 text-center space-y-6 shadow-2xl">
+          <div className="h-10 px-3 rounded bg-[#f5f4f0] inline-flex items-center justify-center mx-auto overflow-hidden">
+            <img
+              src="/logo-mas30.png"
+              alt="MASTREINTA"
+              className="h-full w-auto object-contain"
+            />
+          </div>
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#AF2C75] text-white text-xs font-medium">
+              <ShieldCheck className="w-4 h-4" />
+              Rol: {currentUser.role} · Solo Validación de Ingresos
+            </span>
+            <h1 className="text-2xl font-normal text-white">
+              Lector QR de Puerta
+            </h1>
+            <p className="text-xs text-[#8a8a8a] max-w-md mx-auto">
+              Hola <strong>{currentUser.fullName}</strong> (@{currentUser.username}).
+              Tu usuario tiene asignado exclusivamente el{" "}
+              <strong>Lector QR de Puerta</strong> para validar ingresos. No
+              tenés acceso a modificar eventos, órdenes ni configuración.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-md bg-[#121212] border border-[#353535] text-xs text-left space-y-2">
+            <span className="text-[#8a8a8a] block uppercase text-[11px]">
+              Eventos asignados para validar ({visibleEvents.length}):
+            </span>
+            <div className="space-y-1">
+              {visibleEvents.map((ev) => (
+                <div key={ev.id} className="text-white flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#ffb5d7]" />
+                  <span>
+                    {ev.title} ({ev.dateLabel})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <Link
+              href="/admin/scanner"
+              className="w-full sm:w-auto px-6 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 cursor-pointer hover:brightness-95"
+            >
+              <QrCode className="w-4 h-4" />
+              Abrir Lector QR de Puerta
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                logoutAdminUser();
+                setCurrentUser(null);
+              }}
+              className="w-full sm:w-auto px-4 py-3 rounded-[3px] bg-[#353535] text-white text-xs cursor-pointer hover:bg-[#454545]"
+            >
+              Cerrar sesión
+            </button>
           </div>
         </div>
       </div>
@@ -992,7 +1228,7 @@ export default function AdminDashboardPage() {
               {formatARS(approvedRevenue)}
             </p>
             <p className="text-xs text-[#8a8a8a]">
-              {orders.filter((o) => o.status === "APROBADA").length} órdenes aprobadas
+              {visibleOrders.filter((o) => o.status === "APROBADA").length} órdenes aprobadas
             </p>
           </div>
 
@@ -1001,7 +1237,7 @@ export default function AdminDashboardPage() {
               Tickets Vendidos / Disponibles
             </span>
             <p className="text-3xl font-normal text-white">
-              {events.reduce(
+              {visibleEvents.reduce(
                 (acc, ev) =>
                   acc +
                   ev.ticketTiers.reduce(
@@ -1011,12 +1247,12 @@ export default function AdminDashboardPage() {
                 0
               )}{" "}
               <span className="text-sm text-[#ffb5d7]">
-                ({tickets.length} QRs · {scannedTicketsCount} en puerta)
+                ({visibleTickets.length} QRs · {scannedTicketsCount} en puerta)
               </span>
             </p>
             <p className="text-xs text-emerald-400">
               Disponibles:{" "}
-              {events.reduce(
+              {visibleEvents.reduce(
                 (acc, ev) =>
                   acc +
                   ev.ticketTiers.reduce(
@@ -1039,7 +1275,7 @@ export default function AdminDashboardPage() {
               Preguntas & Contactos
             </span>
             <p className="text-3xl font-normal text-white">
-              {inquiries.length}
+              {visibleInquiries.length}
             </p>
             <p className="text-xs text-[#ffb5d7]">
               {pendingInquiriesCount} sin responder
@@ -1047,51 +1283,65 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* NAVEGACIÓN DE PESTAÑAS ESTILO BRESH (bg-white text-black vs bg-[#3F3F3F] text-white/40) */}
+        {/* NAVEGACIÓN DE PESTAÑAS SEGÚN PERMISOS DEL ROL Y SUPERADMIN */}
         <nav className="flex gap-3 overflow-x-auto scrollbar-hide whitespace-nowrap pb-2">
           {[
             {
-              id: "reservas",
-              label: `Reservas & Ventas (${orders.length})`,
+              id: "reservas" as AdminTab,
+              label: `Reservas & Ventas (${visibleOrders.length})`,
+              visible: permissions.canViewOrders,
             },
             {
-              id: "rendicion",
-              label: `Rendición Dinero & Usuarios (${adminUsers.length})`,
+              id: "rendicion" as AdminTab,
+              label: `Rendición Dinero (${operatorSummaries.length})`,
+              visible: permissions.canViewRendicion,
             },
             {
-              id: "eventos",
-              label: `Carga de Eventos (${events.length})`,
+              id: "eventos" as AdminTab,
+              label: `Carga de Eventos (${visibleEvents.length})`,
+              visible: permissions.canManageEvents,
             },
             {
-              id: "visitas",
+              id: "visitas" as AdminTab,
               label: `Visitas & Estadísticas (${analytics.totalSiteVisits})`,
+              visible: permissions.canViewAnalytics,
             },
             {
-              id: "tickets",
-              label: `Accesos QR (${tickets.length})`,
+              id: "tickets" as AdminTab,
+              label: `Accesos QR (${visibleTickets.length})`,
+              visible: permissions.canViewTickets,
             },
             {
-              id: "consultas",
-              label: `Preguntas & Contactos (${inquiries.length})`,
+              id: "consultas" as AdminTab,
+              label: `Preguntas & Contactos (${visibleInquiries.length})`,
+              visible: permissions.canManageInquiries,
             },
             {
-              id: "configuracion",
+              id: "usuarios_roles" as AdminTab,
+              label: `Superadmin: Roles & Usuarios (${adminUsers.length})`,
+              visible: isSuper,
+            },
+            {
+              id: "configuracion" as AdminTab,
               label: "CBU / Alias & Supabase",
+              visible: permissions.canManageSettings,
             },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as AdminTab)}
-              className={`text-sm transition-colors px-4 py-2 rounded-sm block cursor-pointer ${
-                activeTab === tab.id
-                  ? "bg-white text-black font-medium"
-                  : "bg-[#3F3F3F] text-white/40 hover:text-white/80"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ]
+            .filter((tab) => tab.visible)
+            .map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`text-sm transition-colors px-4 py-2 rounded-sm block cursor-pointer ${
+                  activeTab === tab.id
+                    ? "bg-white text-black font-medium shadow-sm"
+                    : "bg-[#3F3F3F] text-white/50 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
         </nav>
 
         {/* TAB 1: RESERVAS Y VENTAS */}
@@ -1409,8 +1659,8 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setRendicionEventFilter(e.target.value)}
                     className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
                   >
-                    <option value="TODOS">Todos los Eventos (Global)</option>
-                    {events.map((ev) => (
+                    <option value="TODOS">Todos los Eventos Asignados</option>
+                    {visibleEvents.map((ev) => (
                       <option key={ev.id} value={ev.id}>
                         {ev.title} ({ev.dateLabel})
                       </option>
@@ -1597,165 +1847,6 @@ export default function AdminDashboardPage() {
                       )}
                     </tbody>
                   </table>
-                </div>
-              </div>
-            </div>
-
-            {/* GESTIÓN DE USUARIOS Y CONTRASEÑAS DEL ADMIN */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
-                <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
-                  <Users className="w-4 h-4" />
-                  Accesos con Contraseña
-                </div>
-                <h3 className="text-xl font-normal text-white">
-                  Crear / Actualizar Usuario Operador
-                </h3>
-                <p className="text-xs text-[#8a8a8a]">
-                  Creá una cuenta individual con contraseña para cada socio,
-                  cajero o RRPP. Todo QR que generen quedará anotado a su nombre.
-                </p>
-
-                {userSavedMsg && (
-                  <div className="p-3 rounded bg-[#353535] text-xs text-[#ffb5d7]">
-                    {userSavedMsg}
-                  </div>
-                )}
-
-                <form onSubmit={handleCreateAdminUser} className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Nombre y Apellido / Caja *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newUserFullName}
-                      onChange={(e) => setNewUserFullName(e.target.value)}
-                      placeholder="Ej: Lucas Gómez (Caja 3)"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block text-xs text-[#8a8a8a] mb-1">
-                        Usuario (Login) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newUsername}
-                        onChange={(e) => setNewUsername(e.target.value)}
-                        placeholder="Ej: lucas"
-                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-[#8a8a8a] mb-1">
-                        Contraseña *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newUserPassword}
-                        onChange={(e) => setNewUserPassword(e.target.value)}
-                        placeholder="Clave de acceso"
-                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Rol / Función
-                    </label>
-                    <select
-                      value={newUserRole}
-                      onChange={(e) =>
-                        setNewUserRole(e.target.value as AdminUser["role"])
-                      }
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    >
-                      <option value="CAJA_VENTAS">
-                        CAJA_VENTAS (Autoriza Transferencias y Cobra)
-                      </option>
-                      <option value="RRPP">
-                        RRPP (Ventas y Cortesías QR)
-                      </option>
-                      <option value="ADMIN_GENERAL">
-                        ADMIN_GENERAL (Control Total)
-                      </option>
-                      <option value="PUERTA">
-                        PUERTA (Escaneo QR en Entrada)
-                      </option>
-                    </select>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95"
-                  >
-                    Guardar Usuario con Contraseña
-                  </button>
-                </form>
-              </div>
-
-              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
-                <h3 className="text-xl font-normal text-white">
-                  Usuarios Habilitados ({adminUsers.length})
-                </h3>
-                <div className="space-y-3">
-                  {adminUsers.map((u) => (
-                    <div
-                      key={u.id}
-                      className="p-4 rounded-lg bg-[#121212] border border-[#353535] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white">
-                            {u.fullName}
-                          </span>
-                          <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
-                            {u.role}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#8a8a8a] font-mono">
-                          Usuario: <strong className="text-white">@{u.username}</strong>{" "}
-                          · Contraseña:{" "}
-                          <strong className="text-[#ffb5d7]">{u.password}</strong>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewUserFullName(u.fullName);
-                            setNewUsername(u.username);
-                            setNewUserPassword(u.password);
-                            setNewUserRole(u.role);
-                          }}
-                          className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
-                        >
-                          Editar Clave
-                        </button>
-                        {u.username !== "admin" && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              deleteAdminUser(u.id);
-                              syncAll();
-                            }}
-                            className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
-                            title="Eliminar usuario"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
@@ -2366,9 +2457,9 @@ export default function AdminDashboardPage() {
 
             <div className="lg:col-span-5 space-y-4">
               <h3 className="text-lg font-normal text-white">
-                Eventos Cargados ({events.length})
+                Eventos Disponibles ({visibleEvents.length})
               </h3>
-              {events.map((ev) => {
+              {visibleEvents.map((ev) => {
                 const isPublicNow = isEventVisiblePublicly(ev);
                 const isScheduledFuture =
                   !ev.hidden &&
@@ -2394,6 +2485,11 @@ export default function AdminDashboardPage() {
                         <span className="text-xs text-[#8a8a8a]">
                           {ev.dateLabel}
                         </span>
+                        {ev.createdByUsername && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
+                            @{ev.createdByUsername}
+                          </span>
+                        )}
                         {ev.hidden ? (
                           <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[10px] font-medium">
                             Oculto
@@ -2541,16 +2637,21 @@ export default function AdminDashboardPage() {
                           Ver
                         </Link>
 
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await deleteEvent(ev.id);
-                            syncAll();
-                          }}
-                          className="p-1 text-white/40 hover:text-white ml-auto cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {permissions.canDeleteEvents && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (confirm(`¿Eliminar evento "${ev.title}"?`)) {
+                                await deleteEvent(ev.id);
+                                syncAll();
+                              }
+                            }}
+                            className="p-1 text-white/40 hover:text-red-400 ml-auto cursor-pointer"
+                            title="Eliminar evento"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2694,11 +2795,11 @@ export default function AdminDashboardPage() {
                       {(() => {
                         const maxViews = Math.max(
                           1,
-                          ...events.map(
+                          ...visibleEvents.map(
                             (e) => analytics.eventStats[e.id]?.views || 0
                           )
                         );
-                        return events.map((ev) => {
+                        return visibleEvents.map((ev) => {
                           const st = analytics.eventStats[ev.id] || {
                             views: 0,
                             modalOpens: 0,
@@ -2947,9 +3048,9 @@ export default function AdminDashboardPage() {
                     className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
                   >
                     <option value="ALL">
-                      Todos los Eventos (Visible en toda la cartelera)
+                      Todos los Eventos Asignados
                     </option>
-                    {events.map((ev) => (
+                    {visibleEvents.map((ev) => (
                       <option key={ev.id} value={ev.id}>
                         {ev.title} ({ev.dateLabel})
                       </option>
@@ -3130,6 +3231,751 @@ export default function AdminDashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB SUPERADMIN: ROLES, PERMISOS Y GESTIÓN DE USUARIOS */}
+        {activeTab === "usuarios_roles" && isSuper && (
+          <div className="space-y-10">
+            {/* BANNER INFORMATIVO SUPERADMIN */}
+            <div className="rounded-lg bg-gradient-to-r from-[#2a1322] via-[#1c1c1c] to-[#1c1c1c] p-6 sm:p-8 border border-[#ffb5d7]/30 space-y-3">
+              <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase tracking-wider">
+                <ShieldAlert className="w-4 h-4" />
+                Área Exclusiva Superadministrador
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-normal text-white">
+                Roles, Permisos Granulares y Asignación de Eventos
+              </h2>
+              <p className="text-xs text-white/70 max-w-3xl leading-relaxed">
+                Como <strong>Superadmin</strong> tenés control absoluto sobre la plataforma: podés definir roles con permisos exactos (qué botones, pestañas y acciones puede hacer cada uno), crear usuarios y asignar a cada usuario <strong>únicamente los eventos que debe ver y gestionar</strong>. Los demás usuarios nunca verán eventos ni números ajenos.
+              </p>
+            </div>
+
+            {/* SUBSECCIÓN 1: GESTIÓN DE ROLES & PERMISOS */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Formulario Rol */}
+              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {editingRoleId ? "Modificar Rol" : "Nuevo Rol Personalizado"}
+                  </div>
+                  {editingRoleId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingRoleId(null);
+                        setRoleFormName("");
+                        setRoleFormLabel("");
+                        setRoleFormDesc("");
+                        setRoleFormPermissions({
+                          canViewOrders: true,
+                          canApproveOrders: false,
+                          canIssueManualQR: false,
+                          canManageEvents: false,
+                          canDeleteEvents: false,
+                          canViewAnalytics: false,
+                          canViewTickets: false,
+                          canViewRendicion: false,
+                          canManageInquiries: false,
+                          canManageSettings: false,
+                          canUseScanner: false,
+                          scannerOnly: false,
+                          canResetScannedQR: false,
+                        });
+                      }}
+                      className="text-xs text-[#8a8a8a] hover:text-white"
+                    >
+                      Cancelar Edición
+                    </button>
+                  )}
+                </div>
+
+                <h3 className="text-xl font-normal text-white">
+                  {editingRoleId ? "Editar Definición de Rol" : "Definir Rol & Capacidades"}
+                </h3>
+
+                {roleSavedMsg && (
+                  <div className="p-3 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200">
+                    {roleSavedMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleSaveRole} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Código Clave del Rol (Mayúsculas sin espacios) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={roleFormName}
+                      onChange={(e) => setRoleFormName(e.target.value.toUpperCase())}
+                      placeholder="Ej: CAJERO_BAR, SEGURIDAD_VIP"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Nombre Visible / Etiqueta del Rol *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={roleFormLabel}
+                      onChange={(e) => setRoleFormLabel(e.target.value)}
+                      placeholder="Ej: Cajero Bar & Entradas VIP"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Descripción de Funciones
+                    </label>
+                    <input
+                      type="text"
+                      value={roleFormDesc}
+                      onChange={(e) => setRoleFormDesc(e.target.value)}
+                      placeholder="Ej: Solo cobra en barra y aprueba transferencias"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  {/* CHECKBOXES DE PERMISOS */}
+                  <div className="space-y-3 pt-2 border-t border-[#353535]">
+                    <span className="block text-xs font-medium text-white/90">
+                      Permisos asignados a este Rol:
+                    </span>
+
+                    {/* Bloque: Reservas y Ventas */}
+                    <div className="p-3 rounded bg-[#121212] border border-[#353535] space-y-2">
+                      <span className="text-[11px] text-[#ffb5d7] font-medium block">
+                        Órdenes & Ventas
+                      </span>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canViewOrders}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canViewOrders: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Ver listado de órdenes y clientes</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canApproveOrders}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canApproveOrders: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Aprobar o rechazar pagos por transferencia</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canIssueManualQR}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canIssueManualQR: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Emitir cortesías o ventas directas manuales</span>
+                      </label>
+                    </div>
+
+                    {/* Bloque: Eventos */}
+                    <div className="p-3 rounded bg-[#121212] border border-[#353535] space-y-2">
+                      <span className="text-[11px] text-[#ffb5d7] font-medium block">
+                        Eventos
+                      </span>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canManageEvents}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canManageEvents: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Crear y editar eventos</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canDeleteEvents}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canDeleteEvents: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Eliminar eventos definitivamente</span>
+                      </label>
+                    </div>
+
+                    {/* Bloque: Auditoría, Analíticas & QRs */}
+                    <div className="p-3 rounded bg-[#121212] border border-[#353535] space-y-2">
+                      <span className="text-[11px] text-[#ffb5d7] font-medium block">
+                        Auditoría, Visitas & QRs
+                      </span>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canViewAnalytics}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canViewAnalytics: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Ver estadísticas y visitas de la web</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canViewTickets}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canViewTickets: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Ver padrón de entradas y códigos QR</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canViewRendicion}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canViewRendicion: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Ver rendición de dinero por operador</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canManageInquiries}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canManageInquiries: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Gestionar preguntas y contactos</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canManageSettings}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canManageSettings: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Modificar CBU / Alias y configuración</span>
+                      </label>
+                    </div>
+
+                    {/* Bloque: Lector QR de Puerta */}
+                    <div className="p-3 rounded bg-[#121212] border border-[#353535] space-y-2">
+                      <span className="text-[11px] text-[#ffb5d7] font-medium block">
+                        Lector QR de Entrada (Puerta)
+                      </span>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canUseScanner}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canUseScanner: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Habilitado para usar el Lector QR</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.scannerOnly}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              scannerOnly: e.target.checked,
+                              canUseScanner: e.target.checked ? true : p.canUseScanner,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span className="text-amber-300 font-medium">
+                          Modo Estricto: Solo Lector QR (Bloquea todo el panel admin)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canResetScannedQR}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canResetScannedQR: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Puede restablecer entradas ya canjeadas</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 flex items-center justify-center gap-2"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    {editingRoleId ? "Guardar Cambios de Rol" : "Crear Nuevo Rol"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Lista de Roles */}
+              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
+                <h3 className="text-xl font-normal text-white">
+                  Roles Disponibles ({adminRoles.length})
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Los roles definen qué partes del sistema puede ver y accionar un usuario.
+                </p>
+                <div className="space-y-3">
+                  {adminRoles.map((r) => (
+                    <div
+                      key={r.id}
+                      className="p-4 rounded-lg bg-[#121212] border border-[#353535] space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white">
+                              {r.label}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
+                              {r.name}
+                            </span>
+                            {r.isSystem && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/10 text-white/60">
+                                Sistema
+                              </span>
+                            )}
+                          </div>
+                          {r.description && (
+                            <p className="text-xs text-[#8a8a8a] mt-1">{r.description}</p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRoleId(r.id);
+                              setRoleFormName(r.name);
+                              setRoleFormLabel(r.label);
+                              setRoleFormDesc(r.description || "");
+                              setRoleFormPermissions(r.permissions);
+                            }}
+                            className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
+                          >
+                            Editar
+                          </button>
+                          {!r.isSystem && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`¿Eliminar rol ${r.label}?`)) {
+                                  deleteAdminRole(r.id);
+                                  syncAll();
+                                }
+                              }}
+                              className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Badges de permisos */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {r.permissions.canViewOrders && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-[#1c1c1c] text-white/80 border border-[#353535]">
+                            Ver Órdenes
+                          </span>
+                        )}
+                        {r.permissions.canApproveOrders && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+                            Aprobar Pagos
+                          </span>
+                        )}
+                        {r.permissions.canIssueManualQR && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40">
+                            Cortesías QR
+                          </span>
+                        )}
+                        {r.permissions.canManageEvents && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/40">
+                            Gestionar Eventos
+                          </span>
+                        )}
+                        {r.permissions.canViewAnalytics && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-[#1c1c1c] text-white/80 border border-[#353535]">
+                            Visitas Web
+                          </span>
+                        )}
+                        {r.permissions.canViewRendicion && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-[#1c1c1c] text-white/80 border border-[#353535]">
+                            Rendición Caja
+                          </span>
+                        )}
+                        {r.permissions.canUseScanner && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
+                            Lector QR
+                          </span>
+                        )}
+                        {r.permissions.scannerOnly && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 text-red-300 border border-red-800/40 font-medium">
+                            Solo Lector
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* SUBSECCIÓN 2: GESTIÓN DE USUARIOS & ASIGNACIÓN DE EVENTOS */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Formulario Usuario */}
+              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                    <UserCheck className="w-4 h-4" />
+                    {editingUserId ? "Editar Usuario & Asignación" : "Nuevo Usuario"}
+                  </div>
+                  {editingUserId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUserId(null);
+                        setNewUserFullName("");
+                        setNewUsername("");
+                        setNewUserPassword("");
+                        setNewUserRole("ADMIN");
+                        setUserAssignedEventIds([]);
+                      }}
+                      className="text-xs text-[#8a8a8a] hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+
+                <h3 className="text-xl font-normal text-white">
+                  {editingUserId ? "Modificar Usuario" : "Crear Usuario con Eventos"}
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Asigná qué rol tendrá y qué eventos podrá ver. Si no le asignás un evento, ese usuario no podrá verlo ni operar en él.
+                </p>
+
+                {userSavedMsg && (
+                  <div className="p-3 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200">
+                    {userSavedMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateAdminUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Nombre y Apellido / Identificador *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newUserFullName}
+                      onChange={(e) => setNewUserFullName(e.target.value)}
+                      placeholder="Ej: Laura Martínez (Caja 1)"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Usuario (Login) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="Ej: laura"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Contraseña *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newUserPassword}
+                        onChange={(e) => setNewUserPassword(e.target.value)}
+                        placeholder="Clave de acceso"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Rol del Usuario *
+                    </label>
+                    <select
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    >
+                      {adminRoles.map((r) => (
+                        <option key={r.id} value={r.name}>
+                          {r.label} ({r.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* ASIGNACIÓN DE EVENTOS */}
+                  <div className="pt-2 border-t border-[#353535] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-white/90">
+                        Eventos Asignados a este Usuario:
+                      </label>
+                      {newUserRole !== "SUPERADMIN" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setUserAssignedEventIds(events.map((e) => e.id))}
+                            className="text-[11px] text-[#ffb5d7] hover:underline"
+                          >
+                            Todos
+                          </button>
+                          <span className="text-[#8a8a8a] text-[11px]">·</span>
+                          <button
+                            type="button"
+                            onClick={() => setUserAssignedEventIds([])}
+                            className="text-[11px] text-[#8a8a8a] hover:underline"
+                          >
+                            Ninguno
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {newUserRole === "SUPERADMIN" ? (
+                      <div className="p-3 rounded bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200">
+                        ⭐ El <strong>Superadmin</strong> tiene acceso automático a todos los eventos presentes y futuros sin restricción.
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-2 p-3 rounded bg-[#121212] border border-[#353535]">
+                        {events.map((ev) => {
+                          const isChecked = userAssignedEventIds.includes(ev.id);
+                          return (
+                            <label
+                              key={ev.id}
+                              className="flex items-start gap-2.5 text-xs text-white/90 cursor-pointer hover:bg-white/5 p-1 rounded"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setUserAssignedEventIds((prev) => [...prev, ev.id]);
+                                  } else {
+                                    setUserAssignedEventIds((prev) =>
+                                      prev.filter((id) => id !== ev.id)
+                                    );
+                                  }
+                                }}
+                                className="mt-0.5 rounded border-[#353535]"
+                              />
+                              <div className="min-w-0">
+                                <span className="font-medium text-white block truncate">
+                                  {ev.title}
+                                </span>
+                                <span className="text-[11px] text-[#8a8a8a]">
+                                  {ev.dateLabel} · {ev.venueCity}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 flex items-center justify-center gap-2"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {editingUserId ? "Actualizar Usuario" : "Guardar Usuario con Permisos"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Listado de Usuarios */}
+              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
+                <h3 className="text-xl font-normal text-white">
+                  Usuarios Registrados ({adminUsers.length})
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Cada usuario inicia sesión con sus credenciales y sólo accede a los eventos que le asignaste.
+                </p>
+
+                <div className="space-y-3">
+                  {adminUsers.map((u) => {
+                    const isUserSuper = u.role === "SUPERADMIN" || u.username === "superadmin";
+                    const roleDef = adminRoles.find((r) => r.name === u.role);
+                    const userEvents = events.filter((e) =>
+                      (u.assignedEventIds || []).includes(e.id)
+                    );
+
+                    return (
+                      <div
+                        key={u.id}
+                        className="p-4 rounded-lg bg-[#121212] border border-[#353535] space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-white">
+                                {u.fullName}
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
+                                {roleDef?.label || u.role}
+                              </span>
+                              {isUserSuper && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 font-medium">
+                                  SUPERADMIN
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#8a8a8a] font-mono">
+                              Usuario: <strong className="text-white">@{u.username}</strong> · Clave:{" "}
+                              <strong className="text-[#ffb5d7]">{u.password}</strong>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingUserId(u.id);
+                                setNewUserFullName(u.fullName);
+                                setNewUsername(u.username);
+                                setNewUserPassword(u.password);
+                                setNewUserRole(u.role);
+                                setUserAssignedEventIds(u.assignedEventIds || []);
+                                window.scrollTo({ top: 400, behavior: "smooth" });
+                              }}
+                              className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
+                            >
+                              Editar & Eventos
+                            </button>
+                            {!isUserSuper && u.username !== currentUser?.username && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`¿Eliminar al usuario @${u.username}?`)) {
+                                    deleteAdminUser(u.id);
+                                    syncAll();
+                                  }
+                                }}
+                                className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
+                                title="Eliminar usuario"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Eventos asignados */}
+                        <div className="pt-2 border-t border-[#353535]/60 text-xs">
+                          <span className="text-[#8a8a8a] text-[11px] block mb-1">
+                            Eventos con permiso de visualización:
+                          </span>
+                          {isUserSuper ? (
+                            <span className="text-purple-300 text-xs">
+                              ✓ Todos los eventos de la plataforma (Superadmin)
+                            </span>
+                          ) : userEvents.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {userEvents.map((ev) => (
+                                <span
+                                  key={ev.id}
+                                  className="px-2 py-0.5 rounded bg-[#1c1c1c] border border-[#353535] text-[11px] text-white/90"
+                                >
+                                  {ev.title}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-amber-400/90 text-xs italic">
+                              ⚠ Sin eventos asignados (no verá ningún evento en su panel)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -3733,14 +4579,14 @@ export default function AdminDashboardPage() {
                 onChange={(e) => {
                   const evId = e.target.value;
                   setManualEventId(evId);
-                  const ev = events.find((x) => x.id === evId);
+                  const ev = visibleEvents.find((x) => x.id === evId);
                   if (ev && ev.ticketTiers.length > 0) {
                     setManualTierId(ev.ticketTiers[0].id);
                   }
                 }}
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
               >
-                {events.map((ev) => (
+                {visibleEvents.map((ev) => (
                   <option key={ev.id} value={ev.id}>
                     {ev.title} ({ev.dateLabel})
                   </option>

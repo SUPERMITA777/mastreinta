@@ -10,18 +10,24 @@ import {
   CheckCircle2,
   Clock,
   Lock,
+  LogOut,
   QrCode,
   RotateCcw,
   Search,
+  ShieldCheck,
   Upload,
   X,
   XCircle,
 } from "lucide-react";
 import {
+  canUserAccessEvent,
   getCurrentAdminSession,
   getEvents,
   getTickets,
+  getUserPermissions,
+  isSuperAdminUser,
   loginAdminUser,
+  logoutAdminUser,
   resetTicketScanStatus,
   ScanValidationResult,
   validateAndScanQR,
@@ -36,7 +42,8 @@ export default function DoorQRScannerPage() {
 
   const [tickets, setTickets] = useState<TicketQR[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [selectedEventFilter, setSelectedEventFilter] = useState<string>("TODOS");
+  const [selectedEventFilter, setSelectedEventFilter] =
+    useState<string>("TODOS");
   const [manualInput, setManualInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [lastResult, setLastResult] = useState<ScanValidationResult | null>(
@@ -66,6 +73,16 @@ export default function DoorQRScannerPage() {
       stopCamera();
     };
   }, []);
+
+  const permissions = getUserPermissions(currentUser);
+  const isSuper = isSuperAdminUser(currentUser);
+
+  // Filtrar solo los eventos a los que tiene acceso este usuario
+  const allowedEvents = events.filter((ev) =>
+    canUserAccessEvent(currentUser, ev)
+  );
+  const allowedEventIds = new Set(allowedEvents.map((e) => e.id));
+  const allowedTickets = tickets.filter((t) => allowedEventIds.has(t.eventId));
 
   const playFeedbackSound = (type: "ok" | "error") => {
     try {
@@ -102,11 +119,32 @@ export default function DoorQRScannerPage() {
   };
 
   const handleProcessQR = async (code: string) => {
-    if (!code.trim()) return;
+    const clean = code.trim();
+    if (!clean) return;
+
+    // Si no es Superadmin, verificar que el ticket pertenezca a uno de sus eventos asignados
+    if (!isSuper) {
+      const matchingTicket = tickets.find(
+        (t) =>
+          t.qrCode.toLowerCase() === clean.toLowerCase() ||
+          t.shortCode.toLowerCase() === clean.toLowerCase() ||
+          t.id.toLowerCase() === clean.toLowerCase()
+      );
+      if (matchingTicket && !allowedEventIds.has(matchingTicket.eventId)) {
+        setLastResult({
+          outcome: "NO_ENCONTRADO",
+          message:
+            "Este ticket pertenece a un evento que tu usuario no tiene asignado para validar.",
+        });
+        playFeedbackSound("error");
+        return;
+      }
+    }
+
     const operatorLabel = currentUser
       ? `${currentUser.fullName} (@${currentUser.username})`
-      : "Control Puerta MAS30";
-    const res = await validateAndScanQR(code.trim(), operatorLabel);
+      : "Control Puerta MASTREINTA";
+    const res = await validateAndScanQR(clean, operatorLabel);
     setLastResult(res);
     syncData();
     if (res.outcome === "AUTORIZADO") {
@@ -132,7 +170,7 @@ export default function DoorQRScannerPage() {
       }
     } catch {
       setCameraError(
-        "No se pudo acceder a la cámara. Podés subir una imagen de QR descargada, escribir el código o simular el escaneo desde la lista."
+        "No se pudo acceder a la cámara. Podés subir una imagen de QR descargada, escribir el código de 4 dígitos o validar desde la lista."
       );
       setCameraActive(false);
     }
@@ -209,7 +247,7 @@ export default function DoorQRScannerPage() {
     e.target.value = "";
   };
 
-  const filteredTickets = tickets.filter((t) => {
+  const filteredTickets = allowedTickets.filter((t) => {
     const matchesEvent =
       selectedEventFilter === "TODOS" || t.eventId === selectedEventFilter;
     const q = searchQuery.trim().toLowerCase();
@@ -230,14 +268,18 @@ export default function DoorQRScannerPage() {
       <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-md rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 space-y-6">
           <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-full bg-[#AF2C75]/30 border border-[#ffb5d7]/40 flex items-center justify-center mx-auto text-[#ffb5d7]">
-              <Lock className="w-5 h-5" />
+            <div className="h-10 px-3 rounded bg-[#f5f4f0] inline-flex items-center justify-center mx-auto mb-1 overflow-hidden">
+              <img
+                src="/logo-mas30.png"
+                alt="MASTREINTA"
+                className="h-full w-auto object-contain"
+              />
             </div>
             <p className="text-xs uppercase tracking-widest text-[#ffb5d7]">
-              MAS30 · Control de Puerta
+              Control de Puerta · Lector QR
             </p>
             <h1 className="text-2xl font-normal text-white">
-              Acceso al Lector QR
+              Validación de Ingresos
             </h1>
           </div>
           {loginError && (
@@ -263,7 +305,7 @@ export default function DoorQRScannerPage() {
               required
               value={loginUsername}
               onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder="Usuario (ej: puerta o admin)"
+              placeholder="Usuario (ej: lector, puerta o superadmin)"
               className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white"
             />
             <input
@@ -278,9 +320,42 @@ export default function DoorQRScannerPage() {
               type="submit"
               className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm cursor-pointer"
             >
-              Ingresar a Escáner QR
+              Ingresar al Lector QR
             </button>
           </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (!permissions.canUseScanner) {
+    return (
+      <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 text-center space-y-4">
+          <Lock className="w-10 h-10 text-[#ffb5d7] mx-auto" />
+          <h1 className="text-xl font-medium">Sin permiso de Lector QR</h1>
+          <p className="text-xs text-[#8a8a8a]">
+            Tu usuario (@{currentUser.username}) no tiene habilitado el permiso
+            para validar entradas en puerta.
+          </p>
+          <div className="flex justify-center gap-3">
+            <Link
+              href="/admin"
+              className="px-4 py-2 rounded bg-soft-pink text-[#1c1c1c] text-xs font-medium"
+            >
+              Ir al Panel
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                logoutAdminUser();
+                setCurrentUser(null);
+              }}
+              className="px-4 py-2 rounded bg-[#353535] text-white text-xs cursor-pointer"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -289,13 +364,37 @@ export default function DoorQRScannerPage() {
   return (
     <div className="bg-dark-background text-white min-h-screen py-12">
       <div className="container space-y-10">
-        {/* Cabecera estilo Bresh */}
+        {/* Cabecera */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <p className="text-sm text-[#8a8a8a] mb-1">
-              Control de Acceso en Puerta · MAS30
-            </p>
-            <h1 className="text-2xl md:text-5xl font-normal">Lector QR</h1>
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <div className="h-7 px-2 rounded bg-[#f5f4f0] inline-flex items-center justify-center overflow-hidden">
+                <img
+                  src="/logo-mas30.png"
+                  alt="MASTREINTA"
+                  className="h-full w-auto object-contain"
+                />
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-[#AF2C75] text-white text-xs font-medium">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Validador: {currentUser.fullName} (@{currentUser.username} ·{" "}
+                {currentUser.role})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logoutAdminUser();
+                  setCurrentUser(null);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm bg-[#1c1c1c] hover:bg-[#353535] text-xs text-white/70 hover:text-white cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Cerrar sesión
+              </button>
+            </div>
+            <h1 className="text-2xl md:text-5xl font-normal">
+              Lector QR · Validación de Puerta
+            </h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -305,12 +404,14 @@ export default function DoorQRScannerPage() {
             <div className="px-4 py-2 rounded-sm bg-[#1c1c1c] text-sm">
               Por ingresar: <strong className="text-white">{validCount}</strong>
             </div>
-            <Link
-              href="/admin"
-              className="px-4 py-2 rounded-sm bg-white text-black text-sm flex items-center gap-1"
-            >
-              Panel Admin <X className="w-4 h-4" />
-            </Link>
+            {!permissions.scannerOnly && (
+              <Link
+                href="/admin"
+                className="px-4 py-2 rounded-sm bg-white text-black text-sm flex items-center gap-1"
+              >
+                Panel Admin <X className="w-4 h-4" />
+              </Link>
+            )}
           </div>
         </div>
 
@@ -364,7 +465,8 @@ export default function DoorQRScannerPage() {
                   <div className="p-6 text-center space-y-3">
                     <QrCode className="w-10 h-10 text-white/50 mx-auto" />
                     <p className="text-xs text-[#8a8a8a] max-w-xs mx-auto">
-                      Activá la cámara para escanear en puerta o subí la imagen de un código QR descargado:
+                      Activá la cámara para escanear en puerta o subí la imagen
+                      de un código QR descargado:
                     </p>
                     <label className="inline-flex items-center gap-2 px-4 py-2 rounded-[3px] bg-[#353535] hover:bg-[#454545] text-white text-xs font-medium cursor-pointer">
                       <Upload className="w-3.5 h-3.5" />
@@ -402,7 +504,9 @@ export default function DoorQRScannerPage() {
                   <input
                     type="text"
                     value={manualInput}
-                    onChange={(e) => setManualInput(e.target.value.toUpperCase())}
+                    onChange={(e) =>
+                      setManualInput(e.target.value.toUpperCase())
+                    }
                     placeholder="Ej: A9F3"
                     className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm font-mono uppercase tracking-wider text-white"
                   />
@@ -462,8 +566,10 @@ export default function DoorQRScannerPage() {
                     {lastResult.ticket && (
                       <div className="p-4 rounded-md bg-[#121212] space-y-1 text-xs">
                         <p className="text-sm font-medium text-white">
-                          {lastResult.ticket.holderName} (DNI{" "}
-                          {lastResult.ticket.holderDni})
+                          {lastResult.ticket.holderName}
+                          {lastResult.ticket.holderDni
+                            ? ` (DNI ${lastResult.ticket.holderDni})`
+                            : ""}
                         </p>
                         <p className="text-[#ffb5d7]">
                           {lastResult.ticket.tierName} · Entrada{" "}
@@ -490,7 +596,7 @@ export default function DoorQRScannerPage() {
             )}
           </div>
 
-          {/* Columna Derecha: Padrón y Simulador 1-Clic */}
+          {/* Columna Derecha: Padrón de Asistentes Habilitados */}
           <div className="lg:col-span-6 rounded-lg bg-[#1c1c1c] p-6 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-xl font-normal text-white">
@@ -501,8 +607,12 @@ export default function DoorQRScannerPage() {
                 onChange={(e) => setSelectedEventFilter(e.target.value)}
                 className="px-3 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
               >
-                <option value="TODOS">Todos los eventos</option>
-                {events.map((ev) => (
+                <option value="TODOS">
+                  {isSuper
+                    ? "Todos los eventos"
+                    : `Mis eventos asignados (${allowedEvents.length})`}
+                </option>
+                {allowedEvents.map((ev) => (
                   <option key={ev.id} value={ev.id}>
                     {ev.title}
                   </option>
@@ -516,7 +626,7 @@ export default function DoorQRScannerPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar asistente por nombre, DNI o código..."
+                placeholder="Buscar asistente por nombre, DNI o código de 4 dígitos..."
                 className="w-full pl-8 pr-3 py-1 bg-transparent text-sm text-white outline-none placeholder:text-[#A1A199]"
               />
             </div>
@@ -537,9 +647,11 @@ export default function DoorQRScannerPage() {
                         <span className="text-sm font-medium text-white">
                           {t.holderName}
                         </span>
-                        <span className="text-xs text-[#8a8a8a] font-mono">
-                          DNI {t.holderDni}
-                        </span>
+                        {t.holderDni && (
+                          <span className="text-xs text-[#8a8a8a] font-mono">
+                            DNI {t.holderDni}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-[#8a8a8a]">
                         {t.tierName} · {t.eventTitle}
@@ -567,10 +679,10 @@ export default function DoorQRScannerPage() {
                             : "bg-soft-pink text-[#1c1c1c] hover:brightness-90"
                         }`}
                       >
-                        {isUsed ? "Probar Re-Escaneo" : "Escanear QR"}
+                        {isUsed ? "Ya Validado" : "Validar Ingreso"}
                       </button>
 
-                      {isUsed && (
+                      {isUsed && permissions.canResetScannedQR && (
                         <button
                           type="button"
                           onClick={async () => {
@@ -588,6 +700,11 @@ export default function DoorQRScannerPage() {
                   </div>
                 );
               })}
+              {filteredTickets.length === 0 && (
+                <p className="text-xs text-center text-[#8a8a8a] py-8">
+                  No hay entradas QR para mostrar en este filtro.
+                </p>
+              )}
             </div>
           </div>
         </div>

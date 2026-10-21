@@ -12,12 +12,12 @@ export function Mas30LogoBadge({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
 
   return (
     <div
-      className={`inline-flex items-center justify-center rounded-[3px] bg-[#f6f3ec] overflow-hidden ${dims}`}
+      className={`inline-flex items-center justify-center rounded-[3px] bg-[#f5f4f0] overflow-hidden ${dims}`}
     >
       <img
         src="/logo-mas30.png"
-        alt="MAS30"
-        className="h-full w-auto object-contain scale-150"
+        alt="MASTREINTA"
+        className="h-full w-auto object-contain"
       />
     </div>
   );

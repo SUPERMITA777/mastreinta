@@ -182,11 +182,11 @@ export default function TicketQRCard({
       {/* Cabecera estilo Bresh (#AF2C75) */}
       <div className="px-5 py-3.5 bg-[#AF2C75] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="h-7 px-2 rounded-[2px] bg-[#f6f3ec] flex items-center justify-center overflow-hidden">
+          <div className="h-7 px-2 rounded-[2px] bg-[#f5f4f0] flex items-center justify-center overflow-hidden">
             <img
               src="/logo-mas30.png"
-              alt="MAS30"
-              className="h-full w-auto object-contain scale-150"
+              alt="MASTREINTA"
+              className="h-full w-auto object-contain"
             />
           </div>
           <span className="text-xs font-medium uppercase tracking-wider text-white">

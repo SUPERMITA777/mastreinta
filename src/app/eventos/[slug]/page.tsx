@@ -385,11 +385,11 @@ export default function EventDetailPage() {
                     </p>
                   </div>
                   <div className="rounded-t-lg bg-[#1A1A1A] flex items-center gap-3 p-3">
-                    <div className="w-9 h-9 rounded-full bg-[#f6f3ec] flex items-center justify-center overflow-hidden">
+                    <div className="h-8 px-2 rounded bg-[#f5f4f0] flex items-center justify-center overflow-hidden shrink-0">
                       <img
                         src="/logo-mas30.png"
-                        alt="MAS30"
-                        className="w-full h-full object-contain scale-150"
+                        alt="MASTREINTA"
+                        className="h-full w-auto object-contain"
                       />
                     </div>
                     <span className="font-medium text-sm">
