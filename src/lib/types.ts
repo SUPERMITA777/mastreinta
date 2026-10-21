@@ -164,3 +164,21 @@ export interface BankSettings {
   resendApiKey?: string;
   resendFromEmail?: string;
 }
+
+export interface EventAnalyticsItem {
+  views: number;
+  modalOpens: number;
+  pageViews: number;
+  whatsappClicks: number;
+  lastVisitedAt?: string;
+}
+
+export interface SiteAnalytics {
+  totalSiteVisits: number;
+  uniqueVisitors: number;
+  totalWhatsappClicks: number;
+  dailyVisits: Record<string, number>;
+  eventStats: Record<string, EventAnalyticsItem>;
+  updatedAt?: string;
+}
+

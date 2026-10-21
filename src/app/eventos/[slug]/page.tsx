@@ -26,6 +26,7 @@ import {
   getEventBySlug,
   getInquiries,
   INITIAL_SETTINGS,
+  trackVisit,
 } from "@/lib/store";
 import {
   BankSettings,
@@ -93,6 +94,10 @@ export default function EventDetailPage() {
       }
     };
     load();
+    const initialFound = getEventBySlug(slug);
+    if (initialFound) {
+      trackVisit("event_page", initialFound.id);
+    }
     window.addEventListener("mas30-store-updated", load);
     return () => window.removeEventListener("mas30-store-updated", load);
   }, [slug, selectedTierId]);
@@ -275,6 +280,7 @@ export default function EventDetailPage() {
                     )}`}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() => trackVisit("whatsapp_click", event.id)}
                     className="flex-1 min-w-[200px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] text-white text-xs font-medium border border-white/15 transition-colors"
                   >
                     <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
@@ -682,6 +688,7 @@ export default function EventDetailPage() {
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => {
+                    trackVisit("whatsapp_click", event.id);
                     if (buyerName.trim()) {
                       createTransferOrder({
                         event,

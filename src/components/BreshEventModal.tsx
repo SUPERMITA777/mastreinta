@@ -30,6 +30,7 @@ import {
   getBankSettings,
   getInquiries,
   INITIAL_SETTINGS,
+  trackVisit,
 } from "@/lib/store";
 import BreshPosterArt from "./BreshPosterArt";
 import EventPriceText from "./EventPriceText";
@@ -74,6 +75,7 @@ export default function BreshEventModal({
 
   useEffect(() => {
     if (!event) return;
+    trackVisit("event_modal", event.id);
     setSelectedTierId(event.ticketTiers[0]?.id || "");
     setShowCheckout(false);
     setBank(getBankSettings());
@@ -250,6 +252,7 @@ export default function BreshEventModal({
                           )}`}
                           target="_blank"
                           rel="noreferrer"
+                          onClick={() => trackVisit("whatsapp_click", event.id)}
                           className="flex-1 min-w-[200px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-[#121212] hover:bg-[#1e1e1e] text-white text-xs font-medium border border-white/15 transition-colors"
                         >
                           <MessageCircle className="w-4 h-4 text-[#ffb5d7]" />
@@ -541,6 +544,7 @@ export default function BreshEventModal({
                       target="_blank"
                       rel="noreferrer"
                       onClick={() => {
+                        trackVisit("whatsapp_click", event.id);
                         if (buyerName.trim()) {
                           createTransferOrder({
                             event,

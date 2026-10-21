@@ -139,6 +139,146 @@ export async function POST(req: Request) {
       // Primera escritura
     }
 
+    // Acción ligera para registrar visitas a la web y por evento sin pisar datos del admin
+    if (payload.action === "track_visit") {
+      const rawAnalytics = (currentCloud.analytics || {}) as Record<
+        string,
+        unknown
+      >;
+      const dailyVisits = {
+        ...((rawAnalytics.dailyVisits as Record<string, number>) || {}),
+      };
+      const eventStats = {
+        ...((rawAnalytics.eventStats as Record<
+          string,
+          {
+            views: number;
+            modalOpens: number;
+            pageViews: number;
+            whatsappClicks: number;
+            lastVisitedAt?: string;
+          }
+        >) || {}),
+      };
+
+      let totalSiteVisits = Number(rawAnalytics.totalSiteVisits) || 0;
+      let uniqueVisitors = Number(rawAnalytics.uniqueVisitors) || 0;
+      let totalWhatsappClicks = Number(rawAnalytics.totalWhatsappClicks) || 0;
+
+      const nowIso = new Date().toISOString();
+      const todayKey = nowIso.slice(0, 10);
+      const visitType = String(payload.type || "site");
+      const eventId = payload.eventId ? String(payload.eventId) : "";
+
+      if (payload.isNewVisitor) {
+        uniqueVisitors += 1;
+      }
+
+      if (visitType === "site") {
+        totalSiteVisits += 1;
+        dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
+      } else if (visitType === "event_modal" && eventId) {
+        const prev = eventStats[eventId] || {
+          views: 0,
+          modalOpens: 0,
+          pageViews: 0,
+          whatsappClicks: 0,
+        };
+        eventStats[eventId] = {
+          ...prev,
+          views: (Number(prev.views) || 0) + 1,
+          modalOpens: (Number(prev.modalOpens) || 0) + 1,
+          lastVisitedAt: nowIso,
+        };
+      } else if (visitType === "event_page" && eventId) {
+        totalSiteVisits += 1;
+        dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
+        const prev = eventStats[eventId] || {
+          views: 0,
+          modalOpens: 0,
+          pageViews: 0,
+          whatsappClicks: 0,
+        };
+        eventStats[eventId] = {
+          ...prev,
+          views: (Number(prev.views) || 0) + 1,
+          pageViews: (Number(prev.pageViews) || 0) + 1,
+          lastVisitedAt: nowIso,
+        };
+      } else if (visitType === "whatsapp_click") {
+        totalWhatsappClicks += 1;
+        if (eventId) {
+          const prev = eventStats[eventId] || {
+            views: 0,
+            modalOpens: 0,
+            pageViews: 0,
+            whatsappClicks: 0,
+          };
+          eventStats[eventId] = {
+            ...prev,
+            whatsappClicks: (Number(prev.whatsappClicks) || 0) + 1,
+            lastVisitedAt: nowIso,
+          };
+        }
+      }
+
+      const updatedAnalytics = {
+        totalSiteVisits,
+        uniqueVisitors,
+        totalWhatsappClicks,
+        dailyVisits,
+        eventStats,
+        updatedAt: nowIso,
+      };
+
+      const updatedState = {
+        ...currentCloud,
+        analytics: updatedAnalytics,
+        updatedAt: nowIso,
+      };
+
+      await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(STATE_FILE, Buffer.from(JSON.stringify(updatedState), "utf-8"), {
+          contentType: "application/json",
+          upsert: true,
+          cacheControl: "0",
+        });
+
+      return NextResponse.json({
+        ok: true,
+        analytics: updatedAnalytics,
+      });
+    }
+
+    if (payload.action === "reset_analytics") {
+      const nowIso = new Date().toISOString();
+      const emptyAnalytics = {
+        totalSiteVisits: 0,
+        uniqueVisitors: 0,
+        totalWhatsappClicks: 0,
+        dailyVisits: {},
+        eventStats: {},
+        updatedAt: nowIso,
+      };
+      const updatedState = {
+        ...currentCloud,
+        analytics: emptyAnalytics,
+        updatedAt: nowIso,
+      };
+      await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(STATE_FILE, Buffer.from(JSON.stringify(updatedState), "utf-8"), {
+          contentType: "application/json",
+          upsert: true,
+          cacheControl: "0",
+        });
+      return NextResponse.json({
+        ok: true,
+        analytics: emptyAnalytics,
+      });
+    }
+
     const merged = {
       ...currentCloud,
       ...payload,

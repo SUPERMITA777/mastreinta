@@ -7,6 +7,7 @@ import {
   InquiryItem,
   OrderAttendeeInput,
   OrderItem,
+  SiteAnalytics,
   TicketQR,
 } from "./types";
 import { getSupabaseClient } from "./supabase";
@@ -19,6 +20,8 @@ const STORAGE_KEYS = {
   SETTINGS: "mas30_settings_v3",
   ADMIN_USERS: "mas30_admin_users_v1",
   ADMIN_SESSION: "mas30_admin_session_v1",
+  ANALYTICS: "mas30_analytics_v1",
+  VISITOR_KNOWN: "mas30_visitor_known_v1",
 };
 
 export const INITIAL_ADMIN_USERS: AdminUser[] = [
@@ -495,6 +498,7 @@ export async function syncFromCloudStore(): Promise<void> {
     applyKey(STORAGE_KEYS.INQUIRIES, st.inquiries);
     applyKey(STORAGE_KEYS.SETTINGS, st.settings);
     applyKey(STORAGE_KEYS.ADMIN_USERS, st.adminUsers);
+    applyKey(STORAGE_KEYS.ANALYTICS, st.analytics);
 
     isApplyingCloudState = false;
     if (changed) {
@@ -1461,3 +1465,171 @@ export function formatARS(amount: number): string {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+export const INITIAL_ANALYTICS: SiteAnalytics = {
+  totalSiteVisits: 0,
+  uniqueVisitors: 0,
+  totalWhatsappClicks: 0,
+  dailyVisits: {},
+  eventStats: {},
+};
+
+export function getAnalytics(): SiteAnalytics {
+  if (typeof window === "undefined") return INITIAL_ANALYTICS;
+  ensureCloudSyncStarted();
+  const raw = localStorage.getItem(STORAGE_KEYS.ANALYTICS);
+  if (!raw) return INITIAL_ANALYTICS;
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      totalSiteVisits: Number(parsed?.totalSiteVisits) || 0,
+      uniqueVisitors: Number(parsed?.uniqueVisitors) || 0,
+      totalWhatsappClicks: Number(parsed?.totalWhatsappClicks) || 0,
+      dailyVisits: parsed?.dailyVisits || {},
+      eventStats: parsed?.eventStats || {},
+      updatedAt: parsed?.updatedAt,
+    };
+  } catch {
+    return INITIAL_ANALYTICS;
+  }
+}
+
+export async function trackVisit(
+  type: "site" | "event_modal" | "event_page" | "whatsapp_click",
+  eventId?: string
+): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  // Evitar duplicados por React StrictMode en la misma carga (ventana de 1.5s)
+  const dedupeKey = `mas30_track_${type}_${eventId || "global"}`;
+  const lastTs = Number(sessionStorage.getItem(dedupeKey) || "0");
+  const nowMs = Date.now();
+  if (nowMs - lastTs < 1500) return;
+  sessionStorage.setItem(dedupeKey, String(nowMs));
+
+  let isNewVisitor = false;
+  if (!localStorage.getItem(STORAGE_KEYS.VISITOR_KNOWN)) {
+    localStorage.setItem(STORAGE_KEYS.VISITOR_KNOWN, "1");
+    isNewVisitor = true;
+  }
+
+  // Actualizar optimistamente en localStorage
+  const current = getAnalytics();
+  const nowIso = new Date().toISOString();
+  const todayKey = nowIso.slice(0, 10);
+  const dailyVisits = { ...current.dailyVisits };
+  const eventStats = { ...current.eventStats };
+
+  let totalSiteVisits = current.totalSiteVisits;
+  let uniqueVisitors = current.uniqueVisitors + (isNewVisitor ? 1 : 0);
+  let totalWhatsappClicks = current.totalWhatsappClicks;
+
+  if (type === "site") {
+    totalSiteVisits += 1;
+    dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
+  } else if (type === "event_modal" && eventId) {
+    const prev = eventStats[eventId] || {
+      views: 0,
+      modalOpens: 0,
+      pageViews: 0,
+      whatsappClicks: 0,
+    };
+    eventStats[eventId] = {
+      ...prev,
+      views: (Number(prev.views) || 0) + 1,
+      modalOpens: (Number(prev.modalOpens) || 0) + 1,
+      lastVisitedAt: nowIso,
+    };
+  } else if (type === "event_page" && eventId) {
+    totalSiteVisits += 1;
+    dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
+    const prev = eventStats[eventId] || {
+      views: 0,
+      modalOpens: 0,
+      pageViews: 0,
+      whatsappClicks: 0,
+    };
+    eventStats[eventId] = {
+      ...prev,
+      views: (Number(prev.views) || 0) + 1,
+      pageViews: (Number(prev.pageViews) || 0) + 1,
+      lastVisitedAt: nowIso,
+    };
+  } else if (type === "whatsapp_click") {
+    totalWhatsappClicks += 1;
+    if (eventId) {
+      const prev = eventStats[eventId] || {
+        views: 0,
+        modalOpens: 0,
+        pageViews: 0,
+        whatsappClicks: 0,
+      };
+      eventStats[eventId] = {
+        ...prev,
+        whatsappClicks: (Number(prev.whatsappClicks) || 0) + 1,
+        lastVisitedAt: nowIso,
+      };
+    }
+  }
+
+  const nextLocal: SiteAnalytics = {
+    totalSiteVisits,
+    uniqueVisitors,
+    totalWhatsappClicks,
+    dailyVisits,
+    eventStats,
+    updatedAt: nowIso,
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEYS.ANALYTICS, JSON.stringify(nextLocal));
+    notifyStoreUpdate();
+  } catch {
+    // ignore
+  }
+
+  // Persistir en Supabase Cloud
+  try {
+    const res = await fetch("/api/cloud-store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "track_visit",
+        type,
+        eventId,
+        isNewVisitor,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.analytics) {
+        localStorage.setItem(
+          STORAGE_KEYS.ANALYTICS,
+          JSON.stringify(data.analytics)
+        );
+        notifyStoreUpdate();
+      }
+    }
+  } catch {
+    // ignore network error
+  }
+}
+
+export async function resetAnalytics(): Promise<void> {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(
+    STORAGE_KEYS.ANALYTICS,
+    JSON.stringify(INITIAL_ANALYTICS)
+  );
+  notifyStoreUpdate();
+  try {
+    await fetch("/api/cloud-store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset_analytics" }),
+    });
+  } catch {
+    // ignore
+  }
+}
+

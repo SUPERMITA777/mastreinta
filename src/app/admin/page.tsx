@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  BarChart3,
   CheckCircle2,
   Clock,
   Database,
@@ -34,6 +35,7 @@ import {
   deleteOrder,
   formatARS,
   getAdminUsers,
+  getAnalytics,
   getBankSettings,
   getCurrentAdminSession,
   getEvents,
@@ -41,6 +43,7 @@ import {
   getOrders,
   getTickets,
   INITIAL_ADMIN_USERS,
+  INITIAL_ANALYTICS,
   INITIAL_EVENTS,
   INITIAL_SETTINGS,
   isEventVisiblePublicly,
@@ -49,6 +52,7 @@ import {
   pushToCloudStore,
   rejectOrder,
   replyInquiry,
+  resetAnalytics,
   saveBankSettings,
   toggleEventHidden,
   upsertAdminUser,
@@ -61,6 +65,7 @@ import {
   EventItem,
   InquiryItem,
   OrderItem,
+  SiteAnalytics,
   TicketQR,
   TicketTier,
 } from "@/lib/types";
@@ -82,6 +87,7 @@ type AdminTab =
   | "reservas"
   | "rendicion"
   | "eventos"
+  | "visitas"
   | "tickets"
   | "consultas"
   | "configuracion";
@@ -115,6 +121,7 @@ export default function AdminDashboardPage() {
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [bankSettings, setBankSettings] =
     useState<BankSettings>(INITIAL_SETTINGS);
+  const [analytics, setAnalytics] = useState<SiteAnalytics>(INITIAL_ANALYTICS);
 
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("TODOS");
   const [orderSearch, setOrderSearch] = useState("");
@@ -262,6 +269,7 @@ export default function AdminDashboardPage() {
     setTickets(getTickets());
     setInquiries(getInquiries());
     setBankSettings(getBankSettings());
+    setAnalytics(getAnalytics());
     setAdminUsers(getAdminUsers());
     setCurrentUser(getCurrentAdminSession());
     if (typeof window !== "undefined") {
@@ -1053,6 +1061,10 @@ export default function AdminDashboardPage() {
             {
               id: "eventos",
               label: `Carga de Eventos (${events.length})`,
+            },
+            {
+              id: "visitas",
+              label: `Visitas & Estadísticas (${analytics.totalSiteVisits})`,
             },
             {
               id: "tickets",
@@ -2436,6 +2448,20 @@ export default function AdminDashboardPage() {
                                   Disponibles: {totalAvailable} / {totalStock}
                                 </span>
                               </div>
+                              <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-white/10 text-[11px] text-white/80">
+                                <span>
+                                  👁 Visitas al evento:{" "}
+                                  <strong className="text-white">
+                                    {analytics.eventStats[ev.id]?.views || 0}
+                                  </strong>
+                                </span>
+                                <span>
+                                  💬 Clics WhatsApp:{" "}
+                                  <strong className="text-[#ffb5d7]">
+                                    {analytics.eventStats[ev.id]?.whatsappClicks || 0}
+                                  </strong>
+                                </span>
+                              </div>
                               <div className="space-y-1">
                                 {ev.ticketTiers.map((t) => {
                                   const avail = Math.max(
@@ -2530,6 +2556,275 @@ export default function AdminDashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB VISITAS & ESTADÍSTICAS */}
+        {activeTab === "visitas" && (
+          <div className="space-y-8">
+            <div className="rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                    <BarChart3 className="w-4 h-4" />
+                    Tráfico en Tiempo Real & Visibilidad
+                  </div>
+                  <h2 className="text-2xl font-normal text-white">
+                    Visitas a la Página y Rendimiento por Evento
+                  </h2>
+                  <p className="text-xs text-[#8a8a8a]">
+                    Mide cuántas personas entran a la web, cuántas abren cada
+                    evento y cuántas tocan el botón de WhatsApp para comprar.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (
+                      confirm(
+                        "¿Querés reiniciar todos los contadores de visitas a cero?"
+                      )
+                    ) {
+                      await resetAnalytics();
+                      syncAll();
+                    }
+                  }}
+                  className="px-4 py-2.5 rounded-[3px] bg-[#353535] hover:bg-[#454545] text-white/80 hover:text-white text-xs cursor-pointer self-start sm:self-auto"
+                >
+                  Reiniciar Contadores
+                </button>
+              </div>
+
+              {/* 4 TARJETAS DE TRÁFICO GENERAL */}
+              {(() => {
+                const todayKey = new Date().toISOString().slice(0, 10);
+                const todayVisits = analytics.dailyVisits[todayKey] || 0;
+                const totalEventViews = Object.values(
+                  analytics.eventStats || {}
+                ).reduce((acc, s) => acc + (Number(s?.views) || 0), 0);
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-1">
+                      <span className="text-xs text-[#8a8a8a] block">
+                        Visitas Totales a la Página
+                      </span>
+                      <p className="text-3xl font-medium text-white">
+                        {analytics.totalSiteVisits}
+                      </p>
+                      <p className="text-xs text-[#ffb5d7]">
+                        Hoy ({todayKey}): {todayVisits} visitas
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-1">
+                      <span className="text-xs text-[#8a8a8a] block">
+                        Visitantes Únicos (Dispositivos)
+                      </span>
+                      <p className="text-3xl font-medium text-white">
+                        {analytics.uniqueVisitors}
+                      </p>
+                      <p className="text-xs text-[#8a8a8a]">
+                        Personas distintas que ingresaron
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-1">
+                      <span className="text-xs text-[#8a8a8a] block">
+                        Vistas de Eventos (Flyers Abiertos)
+                      </span>
+                      <p className="text-3xl font-medium text-[#ffb5d7]">
+                        {totalEventViews}
+                      </p>
+                      <p className="text-xs text-[#8a8a8a]">
+                        Aperturas de modal + links directos
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-lg bg-[#121212] border border-[#353535] space-y-1">
+                      <span className="text-xs text-[#8a8a8a] block">
+                        Clics al WhatsApp de Compra
+                      </span>
+                      <p className="text-3xl font-medium text-emerald-400">
+                        {analytics.totalWhatsappClicks}
+                      </p>
+                      <p className="text-xs text-[#8a8a8a]">
+                        Intenciones de compra / consulta
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* VISIBILIDAD DETALLADA POR CADA EVENTO */}
+              <div className="space-y-4 pt-4 border-t border-[#353535]">
+                <h3 className="text-base font-medium text-white">
+                  Visibilidad, Tráfico y Disponibilidad por Evento
+                </h3>
+
+                <div className="overflow-x-auto rounded-lg border border-[#353535]">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#121212] text-[#8a8a8a] uppercase border-b border-[#353535]">
+                      <tr>
+                        <th className="py-3.5 px-4">Evento</th>
+                        <th className="py-3.5 px-4">Estado Visibilidad</th>
+                        <th className="py-3.5 px-4 text-center">
+                          Visitas al Evento
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Detalle (Portada / Link)
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Clics WhatsApp
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Tickets Vendidos
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Tickets Disponibles
+                        </th>
+                        <th className="py-3.5 px-4 text-right">
+                          Última Visita
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
+                      {(() => {
+                        const maxViews = Math.max(
+                          1,
+                          ...events.map(
+                            (e) => analytics.eventStats[e.id]?.views || 0
+                          )
+                        );
+                        return events.map((ev) => {
+                          const st = analytics.eventStats[ev.id] || {
+                            views: 0,
+                            modalOpens: 0,
+                            pageViews: 0,
+                            whatsappClicks: 0,
+                          };
+                          const totalStock = ev.ticketTiers.reduce(
+                            (acc, t) => acc + (Number(t.stock) || 0),
+                            0
+                          );
+                          const totalSold = ev.ticketTiers.reduce(
+                            (acc, t) => acc + (Number(t.sold) || 0),
+                            0
+                          );
+                          const totalAvailable = Math.max(
+                            0,
+                            totalStock - totalSold
+                          );
+                          const isPublicNow = isEventVisiblePublicly(ev);
+                          const pct = Math.round((st.views / maxViews) * 100);
+
+                          return (
+                            <tr key={ev.id} className="hover:bg-[#1c1c1c]">
+                              <td className="py-3.5 px-4">
+                                <span className="font-medium text-white block text-sm">
+                                  {ev.title}
+                                </span>
+                                <span className="text-[#8a8a8a] text-[11px]">
+                                  {ev.dateLabel} · {ev.venueName}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {ev.hidden ? (
+                                  <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[11px]">
+                                    Oculto
+                                  </span>
+                                ) : isPublicNow ? (
+                                  <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[11px]">
+                                    Visible en Web
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-[#353535] text-[#ffb5d7] text-[11px]">
+                                    Programado
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="text-base font-semibold text-white block">
+                                  {st.views}
+                                </span>
+                                <div className="w-24 mx-auto h-1.5 rounded-full bg-[#2a2a2a] overflow-hidden mt-1">
+                                  <div
+                                    className="h-full bg-[#ffb5d7]"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4 text-center text-[#8a8a8a]">
+                                {st.modalOpens || 0} modal · {st.pageViews || 0}{" "}
+                                pág.
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="px-2.5 py-1 rounded bg-[#252525] text-[#ffb5d7] font-medium">
+                                  {st.whatsappClicks || 0}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center font-medium text-white">
+                                {totalSold}
+                              </td>
+                              <td className="py-3.5 px-4 text-center font-medium text-emerald-400">
+                                {totalAvailable}{" "}
+                                <span className="text-[#8a8a8a] font-normal">
+                                  / {totalStock}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right text-[#8a8a8a] whitespace-nowrap">
+                                {st.lastVisitedAt
+                                  ? new Date(st.lastVisitedAt).toLocaleString(
+                                      "es-AR",
+                                      {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      }
+                                    )
+                                  : "Sin visitas aún"}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* HISTORIAL DE VISITAS POR DÍA */}
+              {Object.keys(analytics.dailyVisits || {}).length > 0 && (
+                <div className="space-y-3 pt-4 border-t border-[#353535]">
+                  <h3 className="text-sm font-medium text-white">
+                    Visitas a la Página por Día
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                    {Object.entries(analytics.dailyVisits)
+                      .sort(([a], [b]) => b.localeCompare(a))
+                      .slice(0, 14)
+                      .map(([dateStr, count]) => (
+                        <div
+                          key={dateStr}
+                          className="p-3 rounded-md bg-[#121212] border border-[#353535] text-center"
+                        >
+                          <span className="text-[11px] text-[#8a8a8a] block font-mono">
+                            {dateStr}
+                          </span>
+                          <strong className="text-lg text-[#ffb5d7]">
+                            {count}
+                          </strong>
+                          <span className="text-[10px] text-[#8a8a8a] block">
+                            visitas
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

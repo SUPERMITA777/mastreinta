@@ -16,6 +16,7 @@ import {
   getPublicEvents,
   INITIAL_EVENTS,
   INITIAL_SETTINGS,
+  trackVisit,
 } from "@/lib/store";
 import { BankSettings, EventItem } from "@/lib/types";
 import BreshPosterArt from "@/components/BreshPosterArt";
@@ -52,6 +53,7 @@ export default function HomePage() {
       setBank(getBankSettings());
     };
     sync();
+    trackVisit("site");
     // Re-verifica cada 15s por si un evento programado alcanza su fecha/hora de lanzamiento automático
     const launchTimer = setInterval(sync, 15000);
     window.addEventListener("mas30-store-updated", sync);
@@ -398,6 +400,7 @@ export default function HomePage() {
                       )}`}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={() => trackVisit("whatsapp_click", event.id)}
                       title="WhatsApp del Organizador (Consultas y compra de tickets)"
                       className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] transition-colors flex items-center gap-1 text-xs"
                     >
