@@ -990,15 +990,40 @@ export default function AdminDashboardPage() {
 
           <div className="p-6 rounded-lg bg-[#1c1c1c] space-y-1">
             <span className="text-xs text-[#8a8a8a] block">
-              Tickets QR Emitidos
+              Tickets Vendidos / Disponibles
             </span>
             <p className="text-3xl font-normal text-white">
-              {tickets.length}{" "}
+              {events.reduce(
+                (acc, ev) =>
+                  acc +
+                  ev.ticketTiers.reduce(
+                    (s, t) => s + (Number(t.sold) || 0),
+                    0
+                  ),
+                0
+              )}{" "}
               <span className="text-sm text-[#ffb5d7]">
-                ({scannedTicketsCount} en puerta)
+                ({tickets.length} QRs · {scannedTicketsCount} en puerta)
               </span>
             </p>
-            <p className="text-xs text-[#8a8a8a]">1 QR por cada entrada</p>
+            <p className="text-xs text-emerald-400">
+              Disponibles:{" "}
+              {events.reduce(
+                (acc, ev) =>
+                  acc +
+                  ev.ticketTiers.reduce(
+                    (s, t) =>
+                      s +
+                      Math.max(
+                        0,
+                        (Number(t.stock) || 0) - (Number(t.sold) || 0)
+                      ),
+                    0
+                  ),
+                0
+              )}{" "}
+              entradas en stock
+            </p>
           </div>
 
           <div className="p-6 rounded-lg bg-[#1c1c1c] space-y-1">
@@ -2285,21 +2310,35 @@ export default function AdminDashboardPage() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      <input
-                        type="text"
-                        value={tier.description || ""}
-                        onChange={(e) =>
-                          setEvTiers((prev) =>
-                            prev.map((item, i) =>
-                              i === idx
-                                ? { ...item, description: e.target.value }
-                                : item
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <input
+                          type="text"
+                          value={tier.description || ""}
+                          onChange={(e) =>
+                            setEvTiers((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? { ...item, description: e.target.value }
+                                  : item
+                              )
                             )
-                          )
-                        }
-                        placeholder="Descripción de la tanda (ej: Acceso general con 1 código QR individual)"
-                        className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white/80"
-                      />
+                          }
+                          placeholder="Descripción de la tanda (ej: Acceso general con 1 código QR individual)"
+                          className="flex-1 min-w-[200px] px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white/80"
+                        />
+                        <div className="flex items-center gap-2 text-[11px] px-2.5 py-1 rounded bg-[#1c1c1c] border border-[#353535]">
+                          <span className="text-[#ffb5d7] font-medium">
+                            Vendidos: {tier.sold || 0}
+                          </span>
+                          <span className="text-white/30">|</span>
+                          <span className="text-emerald-400 font-medium">
+                            Disponibles: {Math.max(0, (tier.stock || 0) - (tier.sold || 0))}
+                          </span>
+                          <span className="text-[#8a8a8a]">
+                            (Cupo: {tier.stock || 0})
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2368,6 +2407,67 @@ export default function AdminDashboardPage() {
                       <h4 className="text-base font-medium text-white truncate">
                         {ev.title}
                       </h4>
+
+                      {/* Resumen de Tickets Vendidos y Disponibles por Evento y por Tanda */}
+                      <div className="mt-2 p-2.5 rounded bg-[#121212] border border-[#353535] space-y-1.5 text-xs">
+                        {(() => {
+                          const totalStock = ev.ticketTiers.reduce(
+                            (acc, t) => acc + (Number(t.stock) || 0),
+                            0
+                          );
+                          const totalSold = ev.ticketTiers.reduce(
+                            (acc, t) => acc + (Number(t.sold) || 0),
+                            0
+                          );
+                          const totalAvailable = Math.max(
+                            0,
+                            totalStock - totalSold
+                          );
+                          const eventQRsIssued = tickets.filter(
+                            (tk) => tk.eventId === ev.id && tk.status !== "ANULADO"
+                          ).length;
+                          return (
+                            <>
+                              <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-white/10">
+                                <span className="text-[#ffb5d7] font-medium">
+                                  Vendidos: {totalSold} ({eventQRsIssued} QRs)
+                                </span>
+                                <span className="text-emerald-400 font-medium">
+                                  Disponibles: {totalAvailable} / {totalStock}
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                {ev.ticketTiers.map((t) => {
+                                  const avail = Math.max(
+                                    0,
+                                    (Number(t.stock) || 0) - (Number(t.sold) || 0)
+                                  );
+                                  return (
+                                    <div
+                                      key={t.id}
+                                      className="flex items-center justify-between text-[11px] text-[#8a8a8a]"
+                                    >
+                                      <span className="truncate pr-2 text-white/85">
+                                        {t.name}
+                                      </span>
+                                      <span className="shrink-0">
+                                        <strong className="text-[#ffb5d7]">
+                                          {t.sold || 0} vend.
+                                        </strong>{" "}
+                                        ·{" "}
+                                        <strong className="text-emerald-400">
+                                          {avail} disp.
+                                        </strong>{" "}
+                                        ({t.stock})
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
 
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <button
