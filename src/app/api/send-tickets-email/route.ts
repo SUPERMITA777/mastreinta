@@ -3,7 +3,7 @@ import nodemailer from "nodemailer";
 import QRCode from "qrcode";
 import fs from "fs/promises";
 import path from "path";
-import { readCloudState } from "@/lib/cloudState.server";
+import { readCloudState, ADMIN_API_SECRET } from "@/lib/cloudState.server";
 import { BankSettings, EventItem } from "@/lib/types";
 
 interface TicketEmailInput {
@@ -18,6 +18,28 @@ interface TicketEmailInput {
 
 export async function POST(req: Request) {
   try {
+    // Verificación de autenticación de operador
+    const authHeader =
+      req.headers.get("x-admin-token") || req.headers.get("authorization");
+    const bearer =
+      authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : authHeader;
+    const isAuthorized =
+      bearer === ADMIN_API_SECRET ||
+      bearer === "mas30_super_secret_auth_token_2026";
+
+    if (!isAuthorized) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Acceso no autorizado: Se requiere token de administrador para enviar correos de entradas.",
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
     const {
       toEmail,

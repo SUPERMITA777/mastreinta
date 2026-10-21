@@ -538,6 +538,8 @@ let cloudSyncInitialized = false;
 let isApplyingCloudState = false;
 let isSavingToCloud = false;
 
+export const ADMIN_CLIENT_TOKEN = "mas30_super_secret_auth_token_2026";
+
 export async function pushToCloudStore(
   partial?: Record<string, unknown>
 ): Promise<boolean> {
@@ -553,9 +555,17 @@ export async function pushToCloudStore(
       adminUsers: getAdminUsers(),
       adminRoles: getAdminRoles(),
     };
+    const session = getCurrentAdminSession();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    // Solo enviamos el token si hay un operador autenticado
+    if (session) {
+      headers["x-admin-token"] = ADMIN_CLIENT_TOKEN;
+    }
     const res = await fetch("/api/cloud-store", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
     if (res.ok) {
@@ -604,14 +614,22 @@ function filterOutDemoTickets(tickets: TicketQR[]): TicketQR[] {
 export async function syncFromCloudStore(): Promise<void> {
   if (typeof window === "undefined" || isSavingToCloud) return;
   try {
+    const session = getCurrentAdminSession();
+    const headers: Record<string, string> = {};
+    if (session) {
+      headers["x-admin-token"] = ADMIN_CLIENT_TOKEN;
+    }
     const res = await fetch(`/api/cloud-store?t=${Date.now()}`, {
       cache: "no-store",
+      headers,
     });
     if (!res.ok || isSavingToCloud) return;
     const data = await res.json();
 
     if (!data.exists || !data.state) {
-      await pushToCloudStore();
+      if (session) {
+        await pushToCloudStore();
+      }
       return;
     }
 
@@ -643,11 +661,24 @@ export async function syncFromCloudStore(): Promise<void> {
       Array.isArray(st.tickets) ? filterOutDemoTickets(st.tickets) : st.tickets
     );
     applyKey(STORAGE_KEYS.INQUIRIES, st.inquiries);
-    applyKey(STORAGE_KEYS.SETTINGS, st.settings);
-    if (Array.isArray(st.adminUsers)) {
+    if (st.settings) {
+      if (data.isAdmin) {
+        applyKey(STORAGE_KEYS.SETTINGS, st.settings);
+      } else {
+        const prevSettings = getBankSettings();
+        const safeMerged = {
+          ...prevSettings,
+          ...st.settings,
+          smtpPass: prevSettings.smtpPass || "",
+          resendApiKey: prevSettings.resendApiKey || "",
+        };
+        applyKey(STORAGE_KEYS.SETTINGS, safeMerged);
+      }
+    }
+    if (data.isAdmin && Array.isArray(st.adminUsers)) {
       applyKey(STORAGE_KEYS.ADMIN_USERS, normalizeAdminUsersList(st.adminUsers));
     }
-    if (Array.isArray(st.adminRoles)) {
+    if (data.isAdmin && Array.isArray(st.adminRoles)) {
       applyKey(STORAGE_KEYS.ADMIN_ROLES, normalizeAdminRolesList(st.adminRoles));
     }
     applyKey(STORAGE_KEYS.ANALYTICS, st.analytics);

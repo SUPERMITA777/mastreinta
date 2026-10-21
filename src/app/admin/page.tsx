@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  ADMIN_CLIENT_TOKEN,
   approveOrderAndGenerateQRs,
   canUserAccessEvent,
   createManualAdminAccess,
@@ -424,7 +425,10 @@ export default function AdminDashboardPage() {
     try {
       const res = await fetch("/api/send-tickets-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": ADMIN_CLIENT_TOKEN,
+        },
         body: JSON.stringify({
           toEmail: order.buyerEmail,
           buyerName: order.buyerName,
@@ -4336,7 +4340,10 @@ export default function AdminDashboardPage() {
                       try {
                         const res = await fetch("/api/send-tickets-email", {
                           method: "POST",
-                          headers: { "Content-Type": "application/json" },
+                          headers: {
+                            "Content-Type": "application/json",
+                            "x-admin-token": ADMIN_CLIENT_TOKEN,
+                          },
                           body: JSON.stringify({
                             toEmail: testRecipient,
                             buyerName: "Prueba Admin MAS30",
