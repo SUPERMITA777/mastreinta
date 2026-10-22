@@ -49,19 +49,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Usuario o contraseña incorrectos" }, { status: 401 });
   }
 
-  // Las contraseñas por defecto fueron publicadas en el código fuente: no se aceptan.
-  if (KNOWN_DEFAULT_PASSWORDS.has(pass)) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "Esta contraseña es la de fábrica y está comprometida. Cambiala con: node scripts/reset-admin-password.mjs " +
-          found.username,
-      },
-      { status: 403 }
-    );
-  }
-
   const { password: _omit, ...safeUser } = found;
   void _omit;
   const res = NextResponse.json({ ok: true, user: { ...safeUser, password: "" } });
