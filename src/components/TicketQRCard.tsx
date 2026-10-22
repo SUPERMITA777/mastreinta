@@ -202,9 +202,21 @@ export default function TicketQRCard({
       {/* Cuerpo del Ticket */}
       <div className="p-6 flex-1 flex flex-col justify-between space-y-5">
         <div className="space-y-1">
+          {ticket.spotName && (
+            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#AF2C75]/20 text-[#ffb5d7] border border-[#AF2C75]/40 font-mono">
+                📍 {ticket.spotName} {ticket.sectorName ? `· ${ticket.sectorName}` : ""}
+              </span>
+            </div>
+          )}
           <p className="text-xs text-[#ffb5d7] font-medium uppercase">
             {ticket.tierName}
           </p>
+          {ticket.spotPerks && (
+            <p className="text-[11px] text-amber-300 font-medium line-clamp-2">
+              ✨ {ticket.spotPerks}
+            </p>
+          )}
           <h3 className="text-2xl font-normal text-white leading-tight">
             {ticket.eventTitle}
           </h3>

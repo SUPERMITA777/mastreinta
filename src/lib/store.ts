@@ -12,6 +12,10 @@ import {
   RolePermissions,
   SiteAnalytics,
   TicketQR,
+  VenueMapConfig,
+  VenueSectorLabel,
+  VenueSpot,
+  VenueSpotStatus,
 } from "./types";
 import { getSupabaseClient } from "./supabase";
 import { getArgentinaDateKey } from "./dateUtils";
@@ -257,6 +261,99 @@ export const INITIAL_SETTINGS: BankSettings = {
   shareImageUrl: "",
 };
 
+export function createDefaultVenueMap(): VenueMapConfig {
+  return {
+    enabled: true,
+    sectors: [
+      { id: "sec-dj", name: "ESCENARIO / CABINA DJ", x: 50, y: 12, color: "#AF2C75" },
+      { id: "sec-pista", name: "PISTA CENTRAL", x: 50, y: 48, color: "#3b82f6" },
+      { id: "sec-vip", name: "SECTOR VIP EXCLUSIVO", x: 82, y: 48, color: "#eab308" },
+      { id: "sec-livings", name: "LIVINGS & LOUNGE", x: 18, y: 48, color: "#10b981" },
+      { id: "sec-barra", name: "BARRA PRINCIPAL", x: 50, y: 88, color: "#8b5cf6" },
+    ],
+    spots: [
+      {
+        id: "spot-vip-1",
+        name: "Sector VIP Gold (20 personas)",
+        sectorName: "SECTOR VIP EXCLUSIVO",
+        type: "SECTOR_VIP",
+        capacity: 20,
+        price: 200000,
+        perks: "20 accesos + 10 espumantes Baron B + camarero exclusivo + acceso VIP sin fila",
+        x: 82,
+        y: 28,
+        shape: "rect",
+        status: "DISPONIBLE",
+      },
+      {
+        id: "spot-vip-2",
+        name: "Living VIP 1 (10 personas)",
+        sectorName: "SECTOR VIP EXCLUSIVO",
+        type: "LIVING",
+        capacity: 10,
+        price: 100000,
+        perks: "10 accesos + 5 espumantes + living privado y vista preferencial",
+        x: 82,
+        y: 62,
+        shape: "rect",
+        status: "DISPONIBLE",
+      },
+      {
+        id: "spot-mesa-5",
+        name: "Mesa 5 (8 personas)",
+        sectorName: "PISTA CENTRAL",
+        type: "MESA",
+        capacity: 8,
+        price: 50000,
+        perks: "8 accesos + 4 espumantes o botellas a elección + ubicación pista",
+        x: 50,
+        y: 66,
+        shape: "circle",
+        status: "DISPONIBLE",
+      },
+      {
+        id: "spot-mesa-1",
+        name: "Mesa 1 (8 personas)",
+        sectorName: "PISTA CENTRAL",
+        type: "MESA",
+        capacity: 8,
+        price: 50000,
+        perks: "8 accesos + 4 espumantes o consumiciones incluidas",
+        x: 35,
+        y: 66,
+        shape: "circle",
+        status: "DISPONIBLE",
+      },
+      {
+        id: "spot-mesa-2",
+        name: "Mesa 2 (8 personas)",
+        sectorName: "PISTA CENTRAL",
+        type: "MESA",
+        capacity: 8,
+        price: 50000,
+        perks: "8 accesos + 4 espumantes o consumiciones incluidas",
+        x: 65,
+        y: 66,
+        shape: "circle",
+        status: "DISPONIBLE",
+      },
+      {
+        id: "spot-living-lounge",
+        name: "Living Lounge Terraza (12 personas)",
+        sectorName: "LIVINGS & LOUNGE",
+        type: "LIVING",
+        capacity: 12,
+        price: 120000,
+        perks: "12 accesos + 6 espumantes + espacio semi-techado",
+        x: 18,
+        y: 35,
+        shape: "rect",
+        status: "DISPONIBLE",
+      },
+    ],
+  };
+}
+
 export const INITIAL_EVENTS: EventItem[] = [
   {
     id: "evt-halloween-3110",
@@ -313,6 +410,7 @@ export const INITIAL_EVENTS: EventItem[] = [
         ],
       },
     ],
+    venueMap: createDefaultVenueMap(),
     status: "ACTIVO",
     createdAt: "2026-10-20T00:00:00Z",
   },
@@ -716,7 +814,13 @@ export function getEvents(): EventItem[] {
     return INITIAL_EVENTS;
   }
   try {
-    return JSON.parse(raw);
+    const list: EventItem[] = JSON.parse(raw);
+    return list.map((ev) => {
+      if (!ev.venueMap) {
+        return { ...ev, venueMap: createDefaultVenueMap() };
+      }
+      return ev;
+    });
   } catch {
     return INITIAL_EVENTS;
   }
@@ -937,12 +1041,32 @@ export async function createTransferOrder(input: {
   transferReference: string;
   notes?: string;
   attendees: OrderAttendeeInput[];
+  spotId?: string;
+  spotName?: string;
+  spotPerks?: string;
+  sectorName?: string;
 }): Promise<OrderItem> {
-  const tier =
-    input.event.ticketTiers.find((t) => t.id === input.tierId) ||
-    input.event.ticketTiers[0];
+  const matchingSpot = input.spotId
+    ? input.event.venueMap?.spots.find((s) => s.id === input.spotId)
+    : undefined;
+
+  const tier = matchingSpot
+    ? {
+        id: matchingSpot.id,
+        name: matchingSpot.name,
+        price: matchingSpot.price,
+        qrCount: matchingSpot.capacity,
+      }
+    : input.event.ticketTiers.find((t) => t.id === input.tierId) ||
+      input.event.ticketTiers[0];
+
   const qrCountPerUnit = Math.max(1, Number(tier.qrCount) || 1);
-  const totalQrCount = input.quantity * qrCountPerUnit;
+  const totalQrCount = matchingSpot
+    ? matchingSpot.capacity
+    : input.quantity * qrCountPerUnit;
+  const unitPrice = matchingSpot ? matchingSpot.price : tier.price;
+  const totalAmount = matchingSpot ? matchingSpot.price : tier.price * input.quantity;
+
   const randomDigits = Math.floor(1000 + Math.random() * 9000);
   const orderCode = `MAS30-${randomDigits}`;
 
@@ -966,6 +1090,13 @@ export async function createTransferOrder(input: {
     }
   );
 
+  const orderNotes = [
+    input.notes?.trim() || "",
+    matchingSpot ? `[Mesa / Sector Reservado: ${matchingSpot.name}${matchingSpot.perks ? ` · ${matchingSpot.perks}` : ""}]` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const newOrder: OrderItem = {
     id: `ord-${Date.now()}`,
     orderCode,
@@ -980,19 +1111,39 @@ export async function createTransferOrder(input: {
     buyerEmail: input.buyerEmail,
     buyerPhone: input.buyerPhone,
     tierId: tier.id,
-    tierName: tier.name,
-    unitPrice: tier.price,
-    quantity: input.quantity,
+    tierName: matchingSpot ? `${matchingSpot.name} (${matchingSpot.capacity} accesos)` : tier.name,
+    unitPrice,
+    quantity: matchingSpot ? 1 : input.quantity,
     qrCountPerUnit,
     totalQrCount,
-    totalAmount: tier.price * input.quantity,
+    totalAmount,
     transferSender: input.transferSender,
     transferReference: input.transferReference,
-    notes: input.notes,
+    notes: orderNotes,
+    spotId: matchingSpot ? matchingSpot.id : input.spotId,
+    spotName: matchingSpot ? matchingSpot.name : input.spotName,
+    spotPerks: matchingSpot ? matchingSpot.perks : input.spotPerks,
+    sectorName: matchingSpot ? matchingSpot.sectorName : input.sectorName,
     attendees: normalizedAttendees,
     status: "PENDIENTE",
     createdAt: new Date().toISOString(),
   };
+
+  // Si se reservó una mesa/sector en el mapa, actualizar su estado en el evento
+  if (matchingSpot && input.event.venueMap) {
+    const updatedSpots = input.event.venueMap.spots.map((s) =>
+      s.id === matchingSpot.id
+        ? {
+            ...s,
+            status: "RESERVADO" as const,
+            reservedByOrderCode: orderCode,
+            reservedByName: input.buyerName,
+          }
+        : s
+    );
+    input.event.venueMap.spots = updatedSpots;
+    void upsertEvent(input.event);
+  }
 
   const orders = [newOrder, ...getOrders()];
   saveOrders(orders);
@@ -1131,6 +1282,10 @@ export async function approveOrderAndGenerateQRs(
         eventTime: target.eventTime,
         eventVenue: target.eventVenue,
         tierName: target.tierName,
+        spotId: target.spotId,
+        spotName: target.spotName,
+        spotPerks: target.spotPerks,
+        sectorName: target.sectorName,
         holderName: attendee.name,
         holderDni: attendee.dni,
         buyerPhone: target.buyerPhone,
@@ -1146,13 +1301,28 @@ export async function approveOrderAndGenerateQRs(
   );
   const updatedEvents = events.map((ev) => {
     if (ev.id !== target.eventId) return ev;
+    const updatedTiers = ev.ticketTiers.map((tier) =>
+      tier.id === target.tierId
+        ? { ...tier, sold: tier.sold + target.quantity }
+        : tier
+    );
+    const updatedSpots = ev.venueMap?.spots
+      ? ev.venueMap.spots.map((s) =>
+          s.id === target.spotId
+            ? {
+                ...s,
+                status: "VENDIDO" as const,
+                reservedByOrderCode: target.orderCode,
+                reservedByName: target.buyerName,
+              }
+            : s
+        )
+      : undefined;
+
     return {
       ...ev,
-      ticketTiers: ev.ticketTiers.map((tier) =>
-        tier.id === target.tierId
-          ? { ...tier, sold: tier.sold + target.quantity }
-          : tier
-      ),
+      ticketTiers: updatedTiers,
+      venueMap: ev.venueMap && updatedSpots ? { ...ev.venueMap, spots: updatedSpots } : ev.venueMap,
     };
   });
   saveEvents(updatedEvents);
@@ -1276,10 +1446,31 @@ export async function createManualAdminAccess(
 }
 
 export async function rejectOrder(orderId: string): Promise<void> {
-  const updated = getOrders().map((o) =>
+  const orders = getOrders();
+  const target = orders.find((o) => o.id === orderId || o.orderCode === orderId);
+  const updated = orders.map((o) =>
     o.id === orderId ? { ...o, status: "RECHAZADA" as const } : o
   );
   saveOrders(updated);
+
+  // Liberar mesa si correspondía
+  if (target?.spotId) {
+    const events = getEvents();
+    const ev = events.find((e) => e.id === target.eventId);
+    if (ev?.venueMap?.spots) {
+      ev.venueMap.spots = ev.venueMap.spots.map((s) =>
+        s.id === target.spotId
+          ? {
+              ...s,
+              status: "DISPONIBLE" as const,
+              reservedByOrderCode: undefined,
+              reservedByName: undefined,
+            }
+          : s
+      );
+      void upsertEvent(ev);
+    }
+  }
 }
 
 export async function deleteOrder(orderId: string): Promise<void> {
@@ -1295,6 +1486,25 @@ export async function deleteOrder(orderId: string): Promise<void> {
       (t) => t.orderId !== target.id && t.orderCode !== target.orderCode
     );
     saveTickets(updatedTickets);
+
+    // Liberar mesa si correspondía
+    if (target.spotId) {
+      const events = getEvents();
+      const ev = events.find((e) => e.id === target.eventId);
+      if (ev?.venueMap?.spots) {
+        ev.venueMap.spots = ev.venueMap.spots.map((s) =>
+          s.id === target.spotId
+            ? {
+                ...s,
+                status: "DISPONIBLE" as const,
+                reservedByOrderCode: undefined,
+                reservedByName: undefined,
+              }
+            : s
+        );
+        void upsertEvent(ev);
+      }
+    }
   }
 
   const supabase = getSupabaseClient();
@@ -1306,6 +1516,115 @@ export async function deleteOrder(orderId: string): Promise<void> {
       // fallback local
     }
   }
+}
+
+// ==========================================
+// FUNCIONES DE GESTIÓN DEL MAPA Y MESAS
+// ==========================================
+
+export async function updateEventVenueMap(
+  eventId: string,
+  venueMap: VenueMapConfig
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev) return undefined;
+  const updated: EventItem = { ...ev, venueMap };
+  await upsertEvent(updated);
+  return updated;
+}
+
+export async function updateSpotStatus(
+  eventId: string,
+  spotId: string,
+  status: VenueSpotStatus
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev?.venueMap) return undefined;
+  const updatedSpots = (ev.venueMap.spots || []).map((s) =>
+    s.id === spotId ? { ...s, status } : s
+  );
+  const updated: EventItem = {
+    ...ev,
+    venueMap: { ...ev.venueMap, spots: updatedSpots },
+  };
+  await upsertEvent(updated);
+  return updated;
+}
+
+export async function upsertSpot(
+  eventId: string,
+  spot: VenueSpot
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev) return undefined;
+  const vMap: VenueMapConfig = ev.venueMap || createDefaultVenueMap();
+  const existingIdx = vMap.spots.findIndex((s) => s.id === spot.id);
+  const spots =
+    existingIdx >= 0
+      ? vMap.spots.map((s, idx) => (idx === existingIdx ? spot : s))
+      : [...vMap.spots, spot];
+  const updated: EventItem = {
+    ...ev,
+    venueMap: { ...vMap, spots },
+  };
+  await upsertEvent(updated);
+  return updated;
+}
+
+export async function deleteSpot(
+  eventId: string,
+  spotId: string
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev?.venueMap) return undefined;
+  const spots = (ev.venueMap.spots || []).filter((s) => s.id !== spotId);
+  const updated: EventItem = {
+    ...ev,
+    venueMap: { ...ev.venueMap, spots },
+  };
+  await upsertEvent(updated);
+  return updated;
+}
+
+export async function upsertSectorLabel(
+  eventId: string,
+  sector: VenueSectorLabel
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev) return undefined;
+  const vMap: VenueMapConfig = ev.venueMap || createDefaultVenueMap();
+  const existingIdx = vMap.sectors.findIndex((s) => s.id === sector.id);
+  const sectors =
+    existingIdx >= 0
+      ? vMap.sectors.map((s, idx) => (idx === existingIdx ? sector : s))
+      : [...vMap.sectors, sector];
+  const updated: EventItem = {
+    ...ev,
+    venueMap: { ...vMap, sectors },
+  };
+  await upsertEvent(updated);
+  return updated;
+}
+
+export async function deleteSectorLabel(
+  eventId: string,
+  sectorId: string
+): Promise<EventItem | undefined> {
+  const events = getEvents();
+  const ev = events.find((e) => e.id === eventId);
+  if (!ev?.venueMap) return undefined;
+  const sectors = (ev.venueMap.sectors || []).filter((s) => s.id !== sectorId);
+  const updated: EventItem = {
+    ...ev,
+    venueMap: { ...ev.venueMap, sectors },
+  };
+  await upsertEvent(updated);
+  return updated;
 }
 
 export interface ScanValidationResult {

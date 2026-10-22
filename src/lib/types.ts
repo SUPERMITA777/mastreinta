@@ -9,6 +9,42 @@ export interface TicketTier {
   includes: string[];
 }
 
+export type VenueSpotType = "MESA" | "LIVING" | "SECTOR_VIP" | "BOX" | "BARRA";
+export type VenueSpotStatus = "DISPONIBLE" | "RESERVADO" | "VENDIDO" | "BLOQUEADO";
+
+export interface VenueSpot {
+  id: string;
+  name: string; // Ej: "Mesa 5", "Living VIP 1", "Sector VIP"
+  sectorName?: string; // Ej: "Sector VIP", "Pista", "Terraza"
+  type: VenueSpotType;
+  capacity: number; // Cantidad de accesos que emite (ej: 8, 20)
+  price: number; // Precio total en ARS (ej: 50000, 200000)
+  perks?: string; // Beneficios adicionales (ej: "10 espumantes + atención personalizada")
+  x: number; // Posición % horizontal (0 a 100)
+  y: number; // Posición % vertical (0 a 100)
+  width?: number; // Ancho opcional
+  height?: number; // Alto opcional
+  shape?: "circle" | "rect";
+  status: VenueSpotStatus;
+  reservedByOrderCode?: string;
+  reservedByName?: string;
+}
+
+export interface VenueSectorLabel {
+  id: string;
+  name: string; // Ej: "ESCENARIO", "PISTA CENTRAL", "SECTOR VIP", "BARRA"
+  x: number; // % (0 a 100)
+  y: number; // % (0 a 100)
+  color?: string; // Color opcional (hex o nombre)
+}
+
+export interface VenueMapConfig {
+  enabled: boolean;
+  backgroundImageUrl?: string;
+  sectors: VenueSectorLabel[];
+  spots: VenueSpot[];
+}
+
 export interface EventItem {
   id: string;
   slug: string;
@@ -52,6 +88,7 @@ export interface EventItem {
   tiktokLabel?: string; // Texto del botón de TikTok / otra red
   mapQuery?: string; // Búsqueda personalizada para el mapa (si se deja vacío usa predio + dirección)
   createdByUsername?: string; // Usuario que creó el evento
+  venueMap?: VenueMapConfig; // Configuración del mapa del lugar, sectores y mesas reservables
   createdAt: string;
 }
 
@@ -120,6 +157,10 @@ export interface OrderItem {
   transferSender: string;
   transferReference: string;
   notes?: string;
+  spotId?: string; // ID de la mesa o sector reservado (si aplica)
+  spotName?: string; // Ej: "Mesa 5", "Living VIP 1"
+  spotPerks?: string; // Ej: "10 espumantes incluidos"
+  sectorName?: string; // Ej: "Sector VIP"
   attendees: OrderAttendeeInput[];
   status: "PENDIENTE" | "APROBADA" | "RECHAZADA";
   approvedAt?: string;
@@ -141,6 +182,10 @@ export interface TicketQR {
   eventTime: string;
   eventVenue: string;
   tierName: string;
+  spotId?: string;
+  spotName?: string; // Ej: "Mesa 5"
+  spotPerks?: string; // Ej: "10 espumantes incluidos"
+  sectorName?: string; // Ej: "Sector VIP"
   holderName: string;
   holderDni: string;
   buyerPhone: string;

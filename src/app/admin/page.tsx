@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowLeft,
   Ban,
   BarChart3,
   Calendar,
@@ -18,9 +19,11 @@ import {
   EyeOff,
   FileText,
   KeyRound,
+  LayoutGrid,
   Lock,
   LogOut,
   Mail,
+  MapPin,
   Menu,
   MessageCircle,
   PanelLeftClose,
@@ -34,6 +37,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   Unlock,
   Upload,
@@ -47,6 +51,7 @@ import {
   ADMIN_CLIENT_TOKEN,
   approveOrderAndGenerateQRs,
   canUserAccessEvent,
+  createDefaultVenueMap,
   createManualAdminAccess,
   deleteAdminRole,
   deleteAdminUser,
@@ -82,6 +87,7 @@ import {
   saveAdminUsers,
   saveBankSettings,
   toggleEventHidden,
+  updateEventVenueMap,
   updateTicketStatus,
   upsertAdminRole,
   upsertAdminUser,
@@ -99,6 +105,7 @@ import {
   SiteAnalytics,
   TicketQR,
   TicketTier,
+  VenueMapConfig,
 } from "@/lib/types";
 import {
   DEFAULT_SUPABASE_URL,
@@ -119,11 +126,14 @@ import {
   formatArgentinaDateTime,
   TIMEZONE_ARGENTINA,
 } from "@/lib/dateUtils";
+import VenueMapEditor from "@/components/VenueMapEditor";
 
 type AdminTab =
+  | "hub_eventos"
   | "reservas"
   | "rendicion"
   | "eventos"
+  | "mapa"
   | "visitas"
   | "tickets"
   | "consultas"
@@ -132,6 +142,7 @@ type AdminTab =
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>("reservas");
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   // Autenticación y Usuarios Admin
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -383,6 +394,7 @@ export default function AdminDashboardPage() {
     canUserAccessEvent(currentUser, ev)
   );
   const visibleEventIds = new Set(visibleEvents.map((e) => e.id));
+  const selectedEvent = visibleEvents.find((e) => e.id === selectedEventId) || null;
 
   // Filtrar órdenes, tickets y consultas según los eventos accesibles
   const visibleOrders = orders.filter((o) => visibleEventIds.has(o.eventId));
@@ -411,9 +423,11 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (!currentUser) return;
     const allowedTabs: { id: AdminTab; allowed: boolean }[] = [
+      { id: "hub_eventos", allowed: true },
       { id: "reservas", allowed: permissions.canViewOrders },
       { id: "rendicion", allowed: permissions.canViewRendicion },
       { id: "eventos", allowed: permissions.canManageEvents },
+      { id: "mapa", allowed: permissions.canManageEvents },
       { id: "visitas", allowed: permissions.canViewAnalytics },
       { id: "tickets", allowed: permissions.canViewTickets },
       { id: "consultas", allowed: permissions.canManageInquiries },
@@ -760,6 +774,9 @@ export default function AdminDashboardPage() {
         .map((s) => s.trim())
         .filter(Boolean),
       ticketTiers: evTiers,
+      venueMap: editingEventId
+        ? events.find((x) => x.id === editingEventId)?.venueMap || createDefaultVenueMap()
+        : createDefaultVenueMap(),
       status: "ACTIVO",
       hidden: evHidden,
       publishAt: evPublishAt.trim() || undefined,
@@ -1602,63 +1619,115 @@ export default function AdminDashboardPage() {
               </div>
 
               <nav className="flex flex-col gap-1">
-                {[
-                  {
-                    id: "reservas" as AdminTab,
-                    label: "Reservas & Ventas",
-                    count: visibleOrders.length,
-                    icon: Wallet,
-                    visible: permissions.canViewOrders,
-                  },
-                  {
-                    id: "rendicion" as AdminTab,
-                    label: "Rendición Dinero",
-                    count: operatorSummaries.length,
-                    icon: Users,
-                    visible: permissions.canViewRendicion,
-                  },
-                  {
-                    id: "eventos" as AdminTab,
-                    label: "Carga de Eventos",
-                    count: visibleEvents.length,
-                    icon: Calendar,
-                    visible: permissions.canManageEvents,
-                  },
-                  {
-                    id: "visitas" as AdminTab,
-                    label: "Visitas & Estadísticas",
-                    count: analytics.totalSiteVisits,
-                    icon: BarChart3,
-                    visible: permissions.canViewAnalytics,
-                  },
-                  {
-                    id: "tickets" as AdminTab,
-                    label: "Accesos QR",
-                    count: visibleTickets.length,
-                    icon: QrCode,
-                    visible: permissions.canViewTickets,
-                  },
-                  {
-                    id: "consultas" as AdminTab,
-                    label: "Preguntas & Contactos",
-                    count: visibleInquiries.length,
-                    icon: MessageCircle,
-                    visible: permissions.canManageInquiries,
-                  },
-                  {
-                    id: "usuarios_roles" as AdminTab,
-                    label: "Roles & Usuarios",
-                    count: adminUsers.length,
-                    icon: ShieldCheck,
-                    visible: isSuper,
-                  },
-                  {
-                    id: "configuracion" as AdminTab,
-                    label: "Configuración CBU / DB",
-                    icon: Settings,
-                    visible: permissions.canManageSettings,
-                  },
-                ]
+                {(selectedEvent
+                  ? [
+                      {
+                        id: "hub_eventos" as AdminTab,
+                        label: "← Mis Eventos",
+                        icon: ArrowLeft,
+                        visible: true,
+                        onClick: () => {
+                          setSelectedEventId(null);
+                          setActiveTab("hub_eventos");
+                        },
+                      },
+                      {
+                        id: "reservas" as AdminTab,
+                        label: "Reservas & Ventas",
+                        count: visibleOrders.filter((o) => o.eventId === selectedEvent.id).length,
+                        icon: Wallet,
+                        visible: permissions.canViewOrders,
+                      },
+                      {
+                        id: "tickets" as AdminTab,
+                        label: "Accesos QR",
+                        count: visibleTickets.filter((t) => t.eventId === selectedEvent.id).length,
+                        icon: QrCode,
+                        visible: permissions.canViewTickets,
+                      },
+                      {
+                        id: "mapa" as AdminTab,
+                        label: "Plano & Mesas",
+                        count: selectedEvent.venueMap?.spots?.length || 0,
+                        icon: MapPin,
+                        visible: permissions.canManageEvents,
+                      },
+                      {
+                        id: "rendicion" as AdminTab,
+                        label: "Rendición Dinero",
+                        count: operatorSummaries.length,
+                        icon: Users,
+                        visible: permissions.canViewRendicion,
+                      },
+                      {
+                        id: "visitas" as AdminTab,
+                        label: "Visitas & Métricas",
+                        count: analytics.eventStats[selectedEvent.id]?.views || 0,
+                        icon: BarChart3,
+                        visible: permissions.canViewAnalytics,
+                      },
+                      {
+                        id: "eventos" as AdminTab,
+                        label: "Configuración Evento",
+                        icon: Calendar,
+                        visible: permissions.canManageEvents,
+                        onClick: () => {
+                          handleLoadEventToEdit(selectedEvent);
+                          setActiveTab("eventos");
+                        },
+                      },
+                      {
+                        id: "consultas" as AdminTab,
+                        label: "Preguntas & Contactos",
+                        count: visibleInquiries.length,
+                        icon: MessageCircle,
+                        visible: permissions.canManageInquiries,
+                      },
+                      {
+                        id: "usuarios_roles" as AdminTab,
+                        label: "Roles & Usuarios",
+                        count: adminUsers.length,
+                        icon: ShieldCheck,
+                        visible: isSuper,
+                      },
+                      {
+                        id: "configuracion" as AdminTab,
+                        label: "Configuración CBU / DB",
+                        icon: Settings,
+                        visible: permissions.canManageSettings,
+                      },
+                    ]
+                  : [
+                      {
+                        id: "hub_eventos" as AdminTab,
+                        label: "Mis Eventos Habilitados",
+                        count: visibleEvents.length,
+                        icon: Calendar,
+                        visible: true,
+                        onClick: () => setActiveTab("hub_eventos"),
+                      },
+                      {
+                        id: "consultas" as AdminTab,
+                        label: "Preguntas & Contactos",
+                        count: visibleInquiries.length,
+                        icon: MessageCircle,
+                        visible: permissions.canManageInquiries,
+                      },
+                      {
+                        id: "usuarios_roles" as AdminTab,
+                        label: "Roles & Usuarios",
+                        count: adminUsers.length,
+                        icon: ShieldCheck,
+                        visible: isSuper,
+                      },
+                      {
+                        id: "configuracion" as AdminTab,
+                        label: "Configuración CBU / DB",
+                        icon: Settings,
+                        visible: permissions.canManageSettings,
+                      },
+                    ]
+                )
                   .filter((tab) => tab.visible)
                   .map((tab) => {
                     const Icon = tab.icon;
@@ -1667,7 +1736,13 @@ export default function AdminDashboardPage() {
                       <button
                         key={tab.id}
                         type="button"
-                        onClick={() => setActiveTab(tab.id)}
+                        onClick={() => {
+                          if (tab.onClick) {
+                            tab.onClick();
+                          } else {
+                            setActiveTab(tab.id);
+                          }
+                        }}
                         className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                           isActive
                             ? "bg-soft-pink text-[#1c1c1c] shadow-md font-semibold"
@@ -1715,12 +1790,16 @@ export default function AdminDashboardPage() {
                 <span className="text-xs text-[#8a8a8a]">
                   Pestaña activa:{" "}
                   <strong className="text-white">
-                    {activeTab === "reservas"
+                    {activeTab === "hub_eventos"
+                      ? "Mis Eventos Habilitados"
+                      : activeTab === "reservas"
                       ? "Reservas & Ventas"
                       : activeTab === "rendicion"
                       ? "Rendición Dinero"
                       : activeTab === "eventos"
-                      ? "Carga de Eventos"
+                      ? "Configuración del Evento"
+                      : activeTab === "mapa"
+                      ? "Plano & Mesas"
                       : activeTab === "visitas"
                       ? "Visitas & Estadísticas"
                       : activeTab === "tickets"
@@ -1733,6 +1812,286 @@ export default function AdminDashboardPage() {
                   </strong>
                 </span>
               </div>
+            )}
+
+            {/* BANNER DE CONTEXTO DE EVENTO SELECCIONADO */}
+            {selectedEvent && (
+              <div className="rounded-xl bg-[#181818] border border-[#2e2e2e] p-4 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedEventId(null);
+                      setActiveTab("hub_eventos");
+                    }}
+                    className="p-2 rounded-lg bg-[#242424] hover:bg-[#303030] text-white border border-[#353535] transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+                    title="Volver al Hub de Eventos"
+                  >
+                    <ArrowLeft className="w-4 h-4 text-[#ffb5d7]" />
+                    <span>Volver a Mis Eventos</span>
+                  </button>
+
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-base sm:text-lg font-extrabold text-white">
+                        {selectedEvent.title}
+                      </h2>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#AF2C75]/20 text-[#ffb5d7] border border-[#AF2C75]/40 font-mono">
+                        {selectedEvent.badge || selectedEvent.dateLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#8a8a8a] flex items-center gap-1.5 mt-0.5">
+                      <MapPin className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                      <span>{selectedEvent.venueName} · {selectedEvent.time}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                  <div className="flex items-center gap-2 text-xs text-[#8a8a8a]">
+                    <span className="hidden sm:inline">Cambiar evento:</span>
+                    <select
+                      value={selectedEvent.id}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "__ALL__") {
+                          setSelectedEventId(null);
+                          setActiveTab("hub_eventos");
+                        } else {
+                          setSelectedEventId(val);
+                          setOrderEventFilter(val);
+                          setTicketEventFilter(val);
+                          setRendicionEventFilter(val);
+                          setDailyVisitsEventFilter(val);
+                        }
+                      }}
+                      className="bg-[#121212] border border-[#353535] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#ffb5d7]"
+                    >
+                      <option value="__ALL__">← Volver al Hub</option>
+                      {visibleEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.title} ({ev.dateLabel})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <Link
+                    href={`/eventos/${selectedEvent.slug}`}
+                    target="_blank"
+                    className="p-2 rounded-lg bg-[#222] hover:bg-[#2c2c2c] border border-[#353535] text-white text-xs flex items-center gap-1.5 transition-colors"
+                    title="Ver página pública del evento"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                    <span className="hidden sm:inline">Ver en Web</span>
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* TAB HUB: MIS EVENTOS HABILITADOS */}
+            {(!selectedEvent || activeTab === "hub_eventos") && (
+              <div className="space-y-6">
+                <div className="rounded-xl bg-[#181818] border border-[#2e2e2e] p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
+                      <Calendar className="w-6 h-6 text-[#ffb5d7]" />
+                      Mis Eventos Habilitados
+                    </h2>
+                    <p className="text-xs text-[#8a8a8a]">
+                      Selecciona un evento para ingresar a su panel de gestión (reservas, accesos QR, plano de mesas, rendición y métricas) sin necesidad de aplicar filtros.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    {permissions.canManageEvents && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingEventId(null);
+                          setEvTitle("");
+                          setEvSubtitle("");
+                          setEvVenueName("");
+                          setEvVenueAddress("");
+                          setEvVenueCity("Buenos Aires");
+                          setEvMapQuery("");
+                          setEvDescription("");
+                          setEvTexts({ ...EVENT_TEXT_DEFAULTS });
+                          setEvHidden(false);
+                          setEvPublishAt("");
+                          setSelectedEventId("__NEW__");
+                          setActiveTab("eventos");
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold bg-soft-pink text-[#1c1c1c] hover:bg-white transition-all shadow-lg cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Crear Nuevo Evento</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* GRID DE EVENTOS HABILITADOS */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {visibleEvents.map((ev) => {
+                    const evOrders = orders.filter((o) => o.eventId === ev.id);
+                    const evApprovedRevenue = evOrders
+                      .filter((o) => o.status === "APROBADA")
+                      .reduce((acc, o) => acc + o.totalAmount, 0);
+                    const evTickets = tickets.filter(
+                      (t) => t.eventId === ev.id && t.status !== "ANULADO"
+                    );
+                    const evUsedTickets = evTickets.filter(
+                      (t) => t.status === "USADO"
+                    ).length;
+                    const totalSpots = ev.venueMap?.spots?.length || 0;
+                    const availableSpots = (ev.venueMap?.spots || []).filter(
+                      (s) => s.status === "DISPONIBLE"
+                    ).length;
+
+                    return (
+                      <div
+                        key={ev.id}
+                        className="rounded-2xl bg-[#181818] border border-[#2e2e2e] hover:border-[#ffb5d7]/50 transition-all overflow-hidden shadow-2xl flex flex-col justify-between group"
+                      >
+                        <div>
+                          {/* Flyer / Portada */}
+                          <div className="relative h-44 bg-[#121212] overflow-hidden">
+                            {ev.flyerUrl ? (
+                              <img
+                                src={ev.flyerUrl}
+                                alt={ev.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              />
+                            ) : (
+                              <div className="w-full h-full p-4 flex items-center justify-center">
+                                <BreshPosterArt event={ev} />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-black/40 to-transparent" />
+                            <div className="absolute top-3 left-3 flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-black/70 backdrop-blur text-[#ffb5d7] border border-[#ffb5d7]/40 shadow-lg font-mono">
+                                {ev.badge || ev.dateLabel}
+                              </span>
+                              {ev.hidden && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-950/90 text-rose-300 border border-rose-800">
+                                  Oculto
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Info del Evento */}
+                          <div className="p-5 space-y-4">
+                            <div>
+                              <h3 className="text-lg font-bold text-white group-hover:text-[#ffb5d7] transition-colors truncate">
+                                {ev.title}
+                              </h3>
+                              <p className="text-xs text-[#8a8a8a] flex items-center gap-1.5 mt-1">
+                                <MapPin className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                                <span className="truncate">
+                                  {ev.venueName} · {ev.dateLabel}
+                                </span>
+                              </p>
+                            </div>
+
+                            {/* Chips de Métricas del Evento */}
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div className="bg-[#121212] p-2.5 rounded-lg border border-[#262626]">
+                                <span className="text-[10px] uppercase text-[#8a8a8a] block">
+                                  Recaudación
+                                </span>
+                                <strong className="text-sm font-mono text-white">
+                                  {formatARS(evApprovedRevenue)}
+                                </strong>
+                              </div>
+
+                              <div className="bg-[#121212] p-2.5 rounded-lg border border-[#262626]">
+                                <span className="text-[10px] uppercase text-[#8a8a8a] block">
+                                  Accesos / QRs
+                                </span>
+                                <strong className="text-sm font-mono text-[#ffb5d7]">
+                                  {evTickets.length} emitidos ({evUsedTickets} en puerta)
+                                </strong>
+                              </div>
+
+                              {totalSpots > 0 && (
+                                <div className="col-span-2 bg-[#121212] p-2.5 rounded-lg border border-[#262626] flex items-center justify-between">
+                                  <span className="text-[10px] uppercase text-[#8a8a8a] flex items-center gap-1">
+                                    <MapPin className="w-3 h-3 text-amber-400" />
+                                    <span>Plano & Mesas</span>
+                                  </span>
+                                  <span className="font-mono text-xs text-white">
+                                    <strong className="text-emerald-400">
+                                      {availableSpots}
+                                    </strong>{" "}
+                                    disp. / {totalSpots} total
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Botón Ingresar */}
+                        <div className="p-5 pt-0 space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedEventId(ev.id);
+                              setOrderEventFilter(ev.id);
+                              setTicketEventFilter(ev.id);
+                              setRendicionEventFilter(ev.id);
+                              setDailyVisitsEventFilter(ev.id);
+                              setActiveTab("reservas");
+                            }}
+                            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-soft-pink text-[#1c1c1c] hover:bg-white shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <span>Ingresar y Gestionar Evento</span>
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+
+                          <div className="flex items-center justify-between text-[11px] text-[#8a8a8a] px-1">
+                            <Link
+                              href={`/eventos/${ev.slug}`}
+                              target="_blank"
+                              className="hover:text-white flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Ver página web</span>
+                            </Link>
+
+                            {permissions.canManageEvents && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleLoadEventToEdit(ev);
+                                  setSelectedEventId(ev.id);
+                                  setActiveTab("eventos");
+                                }}
+                                className="hover:text-white underline cursor-pointer"
+                              >
+                                Editar datos
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: PLANO & MESAS DEL EVENTO */}
+            {activeTab === "mapa" && selectedEvent && (
+              <VenueMapEditor
+                event={selectedEvent}
+                onSaveMap={async (newMap) => {
+                  await updateEventVenueMap(selectedEvent.id, newMap);
+                  syncAll();
+                }}
+              />
             )}
 
             {/* TAB 1: RESERVAS Y VENTAS */}

@@ -22,6 +22,7 @@ import {
   EventItem,
   InquiryItem,
   OrderAttendeeInput,
+  VenueSpot,
 } from "@/lib/types";
 import {
   createInquiry,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/store";
 import BreshPosterArt from "./BreshPosterArt";
 import EventPriceText from "./EventPriceText";
+import VenueMapViewer from "./VenueMapViewer";
 import { fillEventTemplate, getEventText } from "@/lib/eventTexts";
 
 interface BreshEventModalProps {
@@ -51,6 +53,7 @@ export default function BreshEventModal({
   const [showCheckout, setShowCheckout] = useState(false);
 
   // Estado Reserva por Transferencia
+  const [selectedSpot, setSelectedSpot] = useState<VenueSpot | null>(null);
   const [selectedTierId, setSelectedTierId] = useState<string>("");
   const [quantity, setQuantity] = useState<number>(2);
   const [buyerName, setBuyerName] = useState("");
@@ -77,6 +80,7 @@ export default function BreshEventModal({
     if (!event) return;
     trackVisit("event_modal", event.id);
     setSelectedTierId(event.ticketTiers[0]?.id || "");
+    setSelectedSpot(null);
     setShowCheckout(false);
     setBank(getBankSettings());
     const allInq = getInquiries();
@@ -95,6 +99,22 @@ export default function BreshEventModal({
   }, [event]);
 
   useEffect(() => {
+    if (selectedSpot) {
+      const total = selectedSpot.capacity;
+      setAttendees((prev) =>
+        Array.from({ length: total }, (_, idx) => {
+          if (idx === 0) {
+            return {
+              name: prev[0]?.name || buyerName,
+              dni: prev[0]?.dni || buyerDni,
+            };
+          }
+          return prev[idx] || { name: "", dni: "" };
+        })
+      );
+      return;
+    }
+
     const tier =
       event?.ticketTiers.find((t) => t.id === selectedTierId) ||
       event?.ticketTiers[0];
@@ -111,24 +131,28 @@ export default function BreshEventModal({
         return prev[idx] || { name: "", dni: "" };
       })
     );
-  }, [quantity, selectedTierId, event, buyerName, buyerDni]);
+  }, [quantity, selectedTierId, selectedSpot, event, buyerName, buyerDni]);
 
   if (!event) return null;
 
   const selectedTier =
     event.ticketTiers.find((t) => t.id === selectedTierId) ||
     event.ticketTiers[0];
-  const qrCountPerUnit = Math.max(1, Number(selectedTier?.qrCount) || 1);
-  const totalQRs = quantity * qrCountPerUnit;
-  const totalAmount = (selectedTier?.price || 0) * quantity;
+  const qrCountPerUnit = selectedSpot
+    ? selectedSpot.capacity
+    : Math.max(1, Number(selectedTier?.qrCount) || 1);
+  const totalQRs = selectedSpot ? selectedSpot.capacity : quantity * qrCountPerUnit;
+  const totalAmount = selectedSpot
+    ? selectedSpot.price
+    : (selectedTier?.price || 0) * quantity;
 
   const whatsappOrderText = [
     `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
     ``,
     `🎟 *Detalle de la compra:*`,
-    `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
-    `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
-    `• Total: *${formatARS(totalAmount)}*`,
+    selectedSpot
+      ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
+      : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
     ``,
     `👤 *Datos del cliente:*`,
     `• Nombre: ${buyerName.trim() || "-"}`,
@@ -382,73 +406,118 @@ export default function BreshEventModal({
                     <QrCode className="w-6 h-6 text-[#ffb5d7]" />
                   </div>
 
-                  {/* Selección de Tanda */}
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60 uppercase">
-                      1. Selecciona tu entrada
-                    </label>
-                    <div className="space-y-2">
-                      {event.ticketTiers.map((tier) => {
-                        const active = tier.id === selectedTier?.id;
-                        return (
-                          <div
-                            key={tier.id}
-                            onClick={() => setSelectedTierId(tier.id)}
-                            className={`p-3.5 rounded-md cursor-pointer transition-colors flex items-center justify-between ${
-                              active
-                                ? "bg-[#353535] border border-[#ffb5d7]"
-                                : "bg-[#121212] border border-[#2a2a2a] hover:bg-[#222]"
-                            }`}
-                          >
-                            <div>
-                              <p className="font-medium text-sm text-white">
-                                {tier.name}
-                              </p>
-                              <p className="text-xs text-white/60">
-                                {tier.description}
-                              </p>
-                            </div>
-                            <span className="text-base font-semibold text-[#ffb5d7] ml-3 shrink-0">
-                              {formatARS(tier.price)}
-                            </span>
-                          </div>
-                        );
-                      })}
+                  {/* PLANO DEL LUGAR, MESAS Y SECTORES (SI ESTÁ HABILITADO) */}
+                  {event.venueMap?.enabled && (event.venueMap.spots?.length || 0) > 0 && (
+                    <div className="pb-4 border-b border-white/10">
+                      <VenueMapViewer
+                        event={event}
+                        selectedSpotId={selectedSpot?.id}
+                        onSelectSpot={(spot) => {
+                          setSelectedSpot(spot);
+                        }}
+                      />
                     </div>
-                  </div>
+                  )}
 
-                  {/* Cantidad */}
-                  <div className="flex items-center justify-between bg-[#121212] p-3.5 rounded-md border border-[#2a2a2a]">
-                    <div>
-                      <span className="text-sm font-medium block">
-                        Cantidad de Entradas
-                      </span>
-                      <span className="text-xs text-white/60">
-                        {qrCountPerUnit > 1
-                          ? `Cada unidad incluye ${qrCountPerUnit} QRs (Total: ${totalQRs} códigos QR)`
-                          : "Se genera 1 código QR individual por cada entrada"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
+                  {/* LUGAR O MESA SELECCIONADA EN EL PLANO */}
+                  {selectedSpot ? (
+                    <div className="p-4 rounded-xl bg-[#221820] border-2 border-[#AF2C75] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+                      <div className="space-y-1">
+                        <span className="text-[11px] uppercase tracking-wider text-[#ffb5d7] font-bold block">
+                          📍 Lugar Seleccionado en el Plano
+                        </span>
+                        <h4 className="text-sm font-extrabold text-white">
+                          {selectedSpot.name} {selectedSpot.sectorName ? `· ${selectedSpot.sectorName}` : ""}
+                        </h4>
+                        <p className="text-xs text-[#b0b0b0]">
+                          Incluye <strong>{selectedSpot.capacity} accesos QR individuales</strong> · Total: <strong className="text-[#ffb5d7] font-mono">{formatARS(selectedSpot.price)}</strong>
+                        </p>
+                        {selectedSpot.perks && (
+                          <p className="text-xs text-amber-300 font-medium pt-0.5">
+                            ✨ {selectedSpot.perks}
+                          </p>
+                        )}
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                        className="w-8 h-8 rounded bg-[#252525] text-white font-medium cursor-pointer"
+                        onClick={() => setSelectedSpot(null)}
+                        className="self-start sm:self-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] border border-[#ffb5d7]/30 transition-colors cursor-pointer"
                       >
-                        -
-                      </button>
-                      <span className="font-semibold text-lg w-6 text-center">
-                        {quantity}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setQuantity(Math.min(10, quantity + 1))}
-                        className="w-8 h-8 rounded bg-[#252525] text-white font-medium cursor-pointer"
-                      >
-                        +
+                        ✕ Cambiar a Entrada General
                       </button>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      {/* Selección de Tanda */}
+                      <div className="space-y-2">
+                        <label className="text-xs text-white/60 uppercase">
+                          1. Selecciona tu entrada general
+                        </label>
+                        <div className="space-y-2">
+                          {event.ticketTiers.map((tier) => {
+                            const active = tier.id === selectedTier?.id;
+                            return (
+                              <div
+                                key={tier.id}
+                                onClick={() => setSelectedTierId(tier.id)}
+                                className={`p-3.5 rounded-md cursor-pointer transition-colors flex items-center justify-between ${
+                                  active
+                                    ? "bg-[#353535] border border-[#ffb5d7]"
+                                    : "bg-[#121212] border border-[#2a2a2a] hover:bg-[#222]"
+                                }`}
+                              >
+                                <div>
+                                  <p className="font-medium text-sm text-white">
+                                    {tier.name}
+                                  </p>
+                                  <p className="text-xs text-white/60">
+                                    {tier.description}
+                                  </p>
+                                </div>
+                                <span className="text-base font-semibold text-[#ffb5d7] ml-3 shrink-0">
+                                  {formatARS(tier.price)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Cantidad */}
+                      <div className="flex items-center justify-between bg-[#121212] p-3.5 rounded-md border border-[#2a2a2a]">
+                        <div>
+                          <span className="text-sm font-medium block">
+                            Cantidad de Entradas
+                          </span>
+                          <span className="text-xs text-white/60">
+                            {qrCountPerUnit > 1
+                              ? `Cada unidad incluye ${qrCountPerUnit} QRs (Total: ${totalQRs} códigos QR)`
+                              : "Se genera 1 código QR individual por cada entrada"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                            className="w-8 h-8 rounded bg-[#252525] text-white font-medium cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <span className="font-semibold text-lg w-6 text-center">
+                            {quantity}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setQuantity(Math.min(10, quantity + 1))}
+                            className="w-8 h-8 rounded bg-[#252525] text-white font-medium cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Datos de Transferencia */}
                   <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-2">
@@ -526,21 +595,7 @@ export default function BreshEventModal({
                     <a
                       href={`https://wa.me/${(
                         event.organizerWhatsapp || bank.whatsappSupport
-                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                        [
-                          `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
-                          ``,
-                          `🎟 *Detalle de la compra:*`,
-                          `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}`,
-                          `• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*`,
-                          `• Total: *${formatARS(totalAmount)}*`,
-                          ``,
-                          `👤 *Datos del cliente:*`,
-                          `• Nombre: ${buyerName.trim() || "-"}`,
-                          `• WhatsApp: ${buyerPhone.trim() || "-"}`,
-                          `• Email: ${buyerEmail.trim() || "-"}`,
-                        ].join("\n")
-                      )}`}
+                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`}
                       target="_blank"
                       rel="noreferrer"
                       onClick={() => {
@@ -548,15 +603,20 @@ export default function BreshEventModal({
                         if (buyerName.trim()) {
                           createTransferOrder({
                             event,
-                            tierId: selectedTier.id,
-                            quantity,
+                            tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
+                            quantity: selectedSpot ? 1 : quantity,
                             buyerName,
                             buyerDni: "",
                             buyerEmail,
                             buyerPhone,
                             transferSender: buyerName,
                             transferReference: "Transferencia / WhatsApp",
+                            notes: selectedSpot ? `[Mesa / Sector: ${selectedSpot.name}]` : undefined,
                             attendees,
+                            spotId: selectedSpot?.id,
+                            spotName: selectedSpot?.name,
+                            spotPerks: selectedSpot?.perks,
+                            sectorName: selectedSpot?.sectorName,
                           }).catch(() => {});
                         }
                       }}
