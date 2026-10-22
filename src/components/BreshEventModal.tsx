@@ -69,7 +69,8 @@ export default function BreshEventModal({
   const [copiedAlias, setCopiedAlias] = useState(false);
   const [sharedCopied, setSharedCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
   // Estado Pregunta Rápida
   const [qName, setQName] = useState("");
   const [qEmail, setQEmail] = useState("");
@@ -163,6 +164,40 @@ export default function BreshEventModal({
   const organizerWhatsappHref = `https://wa.me/${(
     event.organizerWhatsapp || bank.whatsappSupport
   ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+
+  const handleMercadoPago = async () => {
+    if (!event) return;
+    setPayError("");
+    if (!buyerName.trim() || !buyerPhone.trim() || !/^\S+@\S+\.\S+$/.test(buyerEmail)) {
+      setPayError("Completá tu nombre, WhatsApp y un email válido.");
+      return;
+    }
+    setPaying(true);
+    try {
+      const res = await fetch("/api/mp/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: event.id,
+          tierId: selectedTier?.id,
+          spotId: selectedSpot?.id,
+          quantity: selectedSpot ? 1 : quantity,
+          buyerName,
+          buyerEmail,
+          buyerPhone,
+          attendees,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.initPoint) {
+        throw new Error(data.error || "No pudimos iniciar el pago.");
+      }
+      window.location.href = data.initPoint;
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : "Error al iniciar el pago.");
+      setPaying(false);
+    }
+  };
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -591,6 +626,27 @@ export default function BreshEventModal({
                         className="px-3 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-white/40"
                       />
                     </div>
+
+                    {event.paymentAccountId && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleMercadoPago}
+                          disabled={paying}
+                          className="w-full py-3.5 px-4 rounded-[3px] bg-[#009ee3] hover:brightness-90 disabled:opacity-60 text-white font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                        >
+                          {paying
+                            ? "Redirigiendo a Mercado Pago..."
+                            : `Pagar ${formatARS(totalAmount)} con tarjeta o transferencia`}
+                        </button>
+                        {payError && (
+                          <p className="text-xs text-red-300">{payError}</p>
+                        )}
+                        <p className="text-[11px] text-white/50 text-center">
+                          Pago seguro con Mercado Pago. Recibís tus QR por email al acreditarse.
+                        </p>
+                      </>
+                    )}
 
                     <a
                       href={`https://wa.me/${(

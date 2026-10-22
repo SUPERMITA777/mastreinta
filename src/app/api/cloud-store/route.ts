@@ -369,6 +369,44 @@ export async function POST(req: Request) {
       });
     }
 
+    // Pagos online: el webhook de Mercado Pago escribe órdenes/QRs desde el servidor.
+    // Si el panel admin sube una lista desactualizada, no debe borrar lo recién creado.
+    if (Array.isArray(payload.orders)) {
+      const cloudOrders = (Array.isArray(currentCloud.orders)
+        ? currentCloud.orders
+        : []) as Array<Record<string, unknown>>;
+      const incomingIds = new Set(
+        (payload.orders as Array<{ id?: string }>).map((o) => o?.id)
+      );
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      const keep = cloudOrders.filter((o) => {
+        if (o.issueType !== "MERCADOPAGO_WEB" || incomingIds.has(o.id as string))
+          return false;
+        const ts = new Date(
+          String(o.approvedAt || o.createdAt || 0)
+        ).getTime();
+        return ts > cutoff;
+      });
+      if (keep.length > 0) {
+        payload.orders = [...keep, ...payload.orders];
+        if (Array.isArray(payload.tickets)) {
+          const keepIds = new Set(keep.map((o) => o.id));
+          const have = new Set(
+            (payload.tickets as Array<{ id?: string }>).map((t) => t?.id)
+          );
+          const cloudTickets = (Array.isArray(currentCloud.tickets)
+            ? currentCloud.tickets
+            : []) as Array<Record<string, unknown>>;
+          payload.tickets = [
+            ...cloudTickets.filter(
+              (t) => keepIds.has(t.orderId) && !have.has(t.id as string)
+            ),
+            ...payload.tickets,
+          ];
+        }
+      }
+    }
+
     const merged = {
       ...currentCloud,
       ...payload,

@@ -255,7 +255,15 @@ export default function AdminDashboardPage() {
     "https://instagram.com/mas30.eventos"
   );
   const [evTiktokUrl, setEvTiktokUrl] = useState("");
-  // Textos editables de la página / modal del evento
+  // Cobros online (Mercado Pago)
+  const [evPaymentAccountId, setEvPaymentAccountId] = useState("");
+  const [evFeePercent, setEvFeePercent] = useState("0");
+  const [mpAccounts, setMpAccounts] = useState<
+    { id: string; label: string; mpUserId: string; email?: string }[]
+  >([]);
+  const [mpConfigured, setMpConfigured] = useState(true);
+  const [mpNewLabel, setMpNewLabel] = useState("");
+  const [mpMsg, setMpMsg] = useState("");  // Textos editables de la página / modal del evento
   const [evTexts, setEvTexts] = useState<Record<EventTextKey, string>>({
     ...EVENT_TEXT_DEFAULTS,
   });
@@ -385,6 +393,55 @@ export default function AdminDashboardPage() {
       window.removeEventListener("storage", syncAll);
     };
   }, []);
+
+  // Cuentas de Mercado Pago conectadas (solo operadores)
+  const loadMpAccounts = async () => {
+    try {
+      const r = await fetch("/api/mp/accounts", {
+        headers: { "x-admin-token": ADMIN_CLIENT_TOKEN },
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      setMpAccounts(d.accounts || []);
+      setMpConfigured(Boolean(d.configured));
+    } catch {
+      // sin conexión
+    }
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    loadMpAccounts();
+    const q = new URLSearchParams(window.location.search).get("mp");
+    if (q === "connected") setMpMsg("Cuenta de Mercado Pago conectada correctamente.");
+    if (q === "error") setMpMsg("No se pudo conectar la cuenta de Mercado Pago.");
+  }, [currentUser?.username]);
+
+  const handleConnectMp = async () => {
+    setMpMsg("");
+    const r = await fetch("/api/mp/accounts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": ADMIN_CLIENT_TOKEN,
+      },
+      body: JSON.stringify({ label: mpNewLabel }),
+    });
+    const d = await r.json();
+    if (d.ok && d.url) window.location.href = d.url;
+    else setMpMsg(d.error || "No se pudo iniciar la conexión.");
+  };
+
+  const handleDisconnectMp = async (id: string) => {
+    if (!window.confirm("¿Desconectar esta cuenta? Los eventos que la usen dejarán de cobrar online.")) return;
+    await fetch(`/api/mp/accounts?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "x-admin-token": ADMIN_CLIENT_TOKEN },
+    });
+    if (evPaymentAccountId === id) setEvPaymentAccountId("");
+    loadMpAccounts();
+  };
 
   const isSuper = isSuperAdminUser(currentUser);
   const permissions = getUserPermissions(currentUser);
@@ -784,6 +841,11 @@ export default function AdminDashboardPage() {
       instagramUrl:
         evInstagramUrl.trim() || "https://instagram.com/mas30.eventos",
       tiktokUrl: evTiktokUrl.trim() || undefined,
+      paymentAccountId: evPaymentAccountId || undefined,
+      platformFeePercent: Math.min(
+        50,
+        Math.max(0, Number(evFeePercent.replace(",", ".")) || 0)
+      ),
       createdByUsername: editingEventId
         ? events.find((x) => x.id === editingEventId)?.createdByUsername || currentUser?.username
         : currentUser?.username,
@@ -805,6 +867,8 @@ export default function AdminDashboardPage() {
     setEvTexts({ ...EVENT_TEXT_DEFAULTS });
     setEvHidden(false);
     setEvPublishAt("");
+    setEvPaymentAccountId("");
+    setEvFeePercent("0");
     setEventSavedMsg(true);
     setTimeout(() => setEventSavedMsg(false), 3500);
   };
@@ -843,6 +907,8 @@ export default function AdminDashboardPage() {
       ev.instagramUrl || "https://instagram.com/mas30.eventos"
     );
     setEvTiktokUrl(ev.tiktokUrl || "");
+    setEvPaymentAccountId(ev.paymentAccountId || "");
+    setEvFeePercent(String(ev.platformFeePercent ?? 0));
     setEvLineupText(ev.lineup.join("\n"));
     setEvTiers(ev.ticketTiers);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2942,6 +3008,91 @@ export default function AdminDashboardPage() {
                       </span>
                     </label>
                   </div>
+                </div>
+
+                {/* Cobro online: cuenta destino y comisión */}
+                <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
+                  <span className="text-xs uppercase text-[#ffb5d7] block">
+                    Cobro online (Mercado Pago)
+                  </span>
+                  {!mpConfigured && (
+                    <p className="text-xs text-amber-300">
+                      Falta configurar MP_CLIENT_ID y MP_CLIENT_SECRET en el servidor.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Cuenta que recibe el dinero de este evento
+                      </label>
+                      <select
+                        value={evPaymentAccountId}
+                        onChange={(e) => setEvPaymentAccountId(e.target.value)}
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      >
+                        <option value="">Sin pago online (solo transferencia / WhatsApp)</option>
+                        {mpAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.label}
+                            {a.email ? ` · ${a.email}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Comisión de la plataforma (%)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={evFeePercent}
+                        onChange={(e) => setEvFeePercent(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Conectar una cuenta nueva (nombre para identificarla)
+                      </label>
+                      <input
+                        type="text"
+                        value={mpNewLabel}
+                        onChange={(e) => setMpNewLabel(e.target.value)}
+                        placeholder="Ej: Productora Juan"
+                        className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConnectMp}
+                      className="px-3 py-2 rounded bg-[#009ee3] text-white text-xs cursor-pointer"
+                    >
+                      Conectar Mercado Pago
+                    </button>
+                  </div>
+                  {mpMsg && <p className="text-xs text-white/70">{mpMsg}</p>}
+                  {mpAccounts.length > 0 && (
+                    <ul className="text-xs text-white/60 space-y-1">
+                      {mpAccounts.map((a) => (
+                        <li key={a.id} className="flex items-center justify-between gap-2">
+                          <span>
+                            {a.label} · ID MP {a.mpUserId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDisconnectMp(a.id)}
+                            className="text-red-300 hover:underline cursor-pointer"
+                          >
+                            Desconectar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 {/* WhatsApp del Organizador y Redes Sociales del Evento */}
