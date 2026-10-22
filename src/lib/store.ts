@@ -1352,10 +1352,13 @@ export async function validateAndScanQR(
     };
   }
 
-  if (match.status === "ANULADO") {
+  if (match.status === "ANULADO" || match.status === "BLOQUEADO") {
     return {
       outcome: "ANULADO",
-      message: "Esta entrada fue ANULADA por la administración.",
+      message:
+        match.status === "BLOQUEADO"
+          ? "¡ACCESO DENEGADO! Esta entrada fue BLOQUEADA por la administración."
+          : "Esta entrada fue ANULADA por la administración.",
       ticket: match,
     };
   }
@@ -1405,13 +1408,69 @@ export async function validateAndScanQR(
   };
 }
 
-export async function resetTicketScanStatus(ticketId: string): Promise<void> {
-  const updated = getTickets().map((t) =>
-    t.id === ticketId
-      ? { ...t, status: "VALIDO" as const, scannedAt: undefined, scannedBy: undefined }
-      : t
-  );
+export async function updateTicketStatus(
+  ticketId: string,
+  newStatus: "VALIDO" | "USADO" | "BLOQUEADO" | "ANULADO"
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const updated = getTickets().map((t) => {
+    if (t.id !== ticketId) return t;
+    if (newStatus === "VALIDO") {
+      return {
+        ...t,
+        status: "VALIDO" as const,
+        scannedAt: undefined,
+        scannedBy: undefined,
+      };
+    }
+    if (newStatus === "USADO") {
+      return {
+        ...t,
+        status: "USADO" as const,
+        scannedAt: t.scannedAt || nowIso,
+        scannedBy: t.scannedBy || "Administración MAS30",
+      };
+    }
+    return {
+      ...t,
+      status: newStatus,
+    };
+  });
   saveTickets(updated);
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from("tickets")
+        .update({
+          status: newStatus,
+          scanned_at: newStatus === "VALIDO" ? null : nowIso,
+        })
+        .eq("id", ticketId);
+    } catch {
+      // fallback local
+    }
+  }
+}
+
+export async function deleteSingleTicket(ticketId: string): Promise<void> {
+  const current = getTickets();
+  const updated = current.filter((t) => t.id !== ticketId);
+  saveTickets(updated);
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from("tickets").delete().eq("id", ticketId);
+    } catch {
+      // fallback local
+    }
+  }
+}
+
+export async function resetTicketScanStatus(ticketId: string): Promise<void> {
+  return updateTicketStatus(ticketId, "VALIDO");
 }
 
 export function getInquiries(): InquiryItem[] {

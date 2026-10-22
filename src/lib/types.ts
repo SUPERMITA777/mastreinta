@@ -149,7 +149,7 @@ export interface TicketQR {
   unitPrice?: number;
   generatedByUsername?: string;
   generatedByName?: string;
-  status: "VALIDO" | "USADO" | "ANULADO";
+  status: "VALIDO" | "USADO" | "ANULADO" | "BLOQUEADO";
   scannedAt?: string;
   scannedBy?: string;
   createdAt: string;

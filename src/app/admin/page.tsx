@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Ban,
   BarChart3,
   Calendar,
   Check,
@@ -15,6 +16,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FileText,
   KeyRound,
   Lock,
   LogOut,
@@ -24,13 +26,16 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Printer,
   QrCode,
+  RefreshCw,
   Search,
   Settings,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
+  Unlock,
   Upload,
   UserCheck,
   UserPlus,
@@ -48,6 +53,7 @@ import {
   deleteEvent,
   deleteInquiry,
   deleteOrder,
+  deleteSingleTicket,
   formatARS,
   getAdminRoles,
   getAdminUsers,
@@ -76,6 +82,7 @@ import {
   saveAdminUsers,
   saveBankSettings,
   toggleEventHidden,
+  updateTicketStatus,
   upsertAdminRole,
   upsertAdminUser,
   upsertEvent,
@@ -194,6 +201,12 @@ export default function AdminDashboardPage() {
   const [expandedOrderCode, setExpandedOrderCode] = useState<string | null>(
     null
   );
+
+  // Estados para filtro, búsqueda y vista de Padrón de Tickets QR
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [ticketEventFilter, setTicketEventFilter] = useState("TODOS");
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("TODOS");
+  const [ticketViewMode, setTicketViewMode] = useState<"lista" | "tarjetas">("lista");
 
   // Modal Crear Accesos Manuales / Cortesías QR
   const [showManualModal, setShowManualModal] = useState(false);
@@ -818,6 +831,39 @@ export default function AdminDashboardPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const handleRehabilitateTicket = async (t: TicketQR) => {
+    if (
+      confirm(
+        `¿Rehabilitar la entrada #${t.ticketNumber} de "${t.holderName}" (${t.shortCode})?\n\nEl acceso volverá a figurar como VÁLIDO y podrá ser escaneado nuevamente en puerta.`
+      )
+    ) {
+      await updateTicketStatus(t.id, "VALIDO");
+      setTickets(getTickets());
+    }
+  };
+
+  const handleBlockTicket = async (t: TicketQR) => {
+    if (
+      confirm(
+        `¿BLOQUEAR la entrada #${t.ticketNumber} de "${t.holderName}" (${t.shortCode})?\n\nEl acceso será DENEGADO inmediatamente si intentan escanearlo en la puerta.`
+      )
+    ) {
+      await updateTicketStatus(t.id, "BLOQUEADO");
+      setTickets(getTickets());
+    }
+  };
+
+  const handleDeleteTicket = async (t: TicketQR) => {
+    if (
+      confirm(
+        `¿Eliminar definitivamente la entrada #${t.ticketNumber} de "${t.holderName}" (${t.shortCode}) del evento ${t.eventTitle}?\n\nEsta acción quitará el ticket del padrón.`
+      )
+    ) {
+      await deleteSingleTicket(t.id);
+      setTickets(getTickets());
+    }
+  };
+
   const handleExportTicketsCSV = () => {
     const headers = [
       "Codigo Puerta",
@@ -831,7 +877,7 @@ export default function AdminDashboardPage() {
       "Estado",
       "Hora Escaneo",
     ];
-    const rows = tickets.map((t) => [
+    const rows = filteredTickets.map((t) => [
       t.shortCode,
       t.orderCode,
       `"${t.eventTitle}"`,
@@ -850,6 +896,215 @@ export default function AdminDashboardPage() {
     a.href = url;
     a.download = `Padron-Puerta-MAS30-${getArgentinaDateKey()}.csv`;
     a.click();
+  };
+
+  const handleExportTicketsPDF = () => {
+    const eventObj =
+      ticketEventFilter !== "TODOS"
+        ? events.find((e) => e.id === ticketEventFilter)
+        : null;
+
+    const ticketsToPrint = filteredTickets;
+    const totalCount = ticketsToPrint.length;
+    const validCount = ticketsToPrint.filter((t) => t.status === "VALIDO").length;
+    const usedCount = ticketsToPrint.filter((t) => t.status === "USADO").length;
+    const blockedCount = ticketsToPrint.filter(
+      (t) => t.status === "BLOQUEADO" || t.status === "ANULADO"
+    ).length;
+
+    const eventTitleHeader = eventObj
+      ? `${eventObj.title} · ${eventObj.dateLabel} · ${eventObj.venueName}`
+      : "PADRÓN CONSOLIDADO DE ACCESOS (TODOS LOS EVENTOS)";
+
+    const generatedDateTime = formatArgentinaDateTime(new Date());
+
+    const tableRows = ticketsToPrint
+      .map((t, idx) => {
+        const statusBadge =
+          t.status === "VALIDO"
+            ? '<span style="color:#059669;font-weight:bold;">VÁLIDO</span>'
+            : t.status === "USADO"
+            ? '<span style="color:#db2777;font-weight:bold;">INGRESADO</span>'
+            : '<span style="color:#dc2626;font-weight:bold;">BLOQUEADO</span>';
+
+        const scanTime = t.scannedAt ? formatArgentinaDateTime(t.scannedAt) : "-";
+
+        return `
+          <tr>
+            <td style="text-align:center;color:#666;">${idx + 1}</td>
+            <td style="font-family:monospace;font-weight:bold;text-align:center;">${t.shortCode}</td>
+            <td><strong>${t.holderName}</strong></td>
+            <td style="font-family:monospace;">${t.holderDni || "-"}</td>
+            <td>${t.tierName}</td>
+            <td style="color:#555;">${t.eventTitle}</td>
+            <td style="font-family:monospace;font-size:10px;color:#777;">${t.orderCode}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td style="font-size:10px;text-align:center;color:#555;">${scanTime}</td>
+            <td style="width:70px;border-bottom:1px solid #ccc;"></td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const printHtml = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>Padron-Accesos-MAS30-${getArgentinaDateKey()}</title>
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 8mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            color: #111;
+            margin: 0;
+            padding: 10px;
+            font-size: 11px;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #111;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+          }
+          .title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            margin: 0 0 4px 0;
+            text-transform: uppercase;
+          }
+          .subtitle {
+            font-size: 13px;
+            color: #444;
+            font-weight: 600;
+            margin: 0;
+          }
+          .meta {
+            text-align: right;
+            font-size: 10px;
+            color: #555;
+          }
+          .stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+          }
+          .stat-box {
+            padding: 6px 12px;
+            background: #f4f4f5;
+            border: 1px solid #e4e4e7;
+            border-radius: 4px;
+            font-size: 11px;
+          }
+          .stat-box strong {
+            font-size: 13px;
+            color: #111;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10.5px;
+          }
+          th {
+            background-color: #18181b;
+            color: #fff;
+            padding: 6px 8px;
+            text-align: left;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          td {
+            padding: 5.5px 8px;
+            border-bottom: 1px solid #e4e4e7;
+            vertical-align: middle;
+          }
+          tr:nth-child(even) td {
+            background-color: #fafafa;
+          }
+          .footer {
+            margin-top: 14px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: #71717a;
+            border-top: 1px solid #e4e4e7;
+            padding-top: 6px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="title">MASTREINTA · Padrón Oficial de Control de Accesos</h1>
+            <p class="subtitle">${eventTitleHeader}</p>
+          </div>
+          <div class="meta">
+            <div>Fecha de Emisión: <strong>${generatedDateTime}</strong></div>
+            <div>Zona horaria: Buenos Aires (GMT-3)</div>
+            <div>Operador: ${currentUser?.fullName || "Admin"} (@${currentUser?.username || "admin"})</div>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-box">Total en Padrón: <strong>${totalCount}</strong></div>
+          <div class="stat-box">Válidos (Por ingresar): <strong style="color:#059669;">${validCount}</strong></div>
+          <div class="stat-box">Ingresados en Puerta: <strong style="color:#db2777;">${usedCount}</strong></div>
+          <div class="stat-box">Bloqueados: <strong style="color:#dc2626;">${blockedCount}</strong></div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30px;text-align:center;">#</th>
+              <th style="width:75px;text-align:center;">Código</th>
+              <th>Nombre del Asistente</th>
+              <th style="width:85px;">DNI</th>
+              <th>Sector / Entrada</th>
+              <th>Evento</th>
+              <th style="width:85px;">Orden</th>
+              <th style="width:80px;text-align:center;">Estado</th>
+              <th style="width:95px;text-align:center;">Hora Ingreso</th>
+              <th style="width:70px;text-align:center;">Firma / Check</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <span>Sistema de Validación de Tickets MASTREINTA · Documento oficial para personal de puerta y seguridad</span>
+          <span>Página 1</span>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.focus();
+            window.print();
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWin = window.open("", "_blank");
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(printHtml);
+      printWin.document.close();
+    }
   };
 
   // Resumen de Rendición agrupado por cada Usuario / Operador
@@ -1003,6 +1258,27 @@ export default function AdminDashboardPage() {
       (o.approvedByName || "").toLowerCase().includes(q) ||
       (o.approvedByUsername || "").toLowerCase().includes(q);
     return matchStatus && matchEvent && matchText;
+  });
+
+  const filteredTickets = visibleTickets.filter((t) => {
+    const matchEvent =
+      ticketEventFilter === "TODOS" || t.eventId === ticketEventFilter;
+    const matchStatus =
+      ticketStatusFilter === "TODOS" ||
+      (ticketStatusFilter === "VALIDO" && t.status === "VALIDO") ||
+      (ticketStatusFilter === "USADO" && t.status === "USADO") ||
+      (ticketStatusFilter === "BLOQUEADO" &&
+        (t.status === "BLOQUEADO" || t.status === "ANULADO"));
+    const q = ticketSearch.trim().toLowerCase();
+    const matchText =
+      !q ||
+      (t.holderName || "").toLowerCase().includes(q) ||
+      (t.holderDni || "").toLowerCase().includes(q) ||
+      (t.shortCode || "").toLowerCase().includes(q) ||
+      (t.orderCode || "").toLowerCase().includes(q) ||
+      (t.tierName || "").toLowerCase().includes(q) ||
+      (t.eventTitle || "").toLowerCase().includes(q);
+    return matchEvent && matchStatus && matchText;
   });
 
   const selectedManualEvent =
@@ -3516,25 +3792,363 @@ export default function AdminDashboardPage() {
         {/* TAB 3: ACCESOS QR */}
         {activeTab === "tickets" && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h2 className="text-2xl font-normal text-white">
-                Padrón de Tickets QR Individuales ({tickets.length})
-              </h2>
-              <button
-                type="button"
-                onClick={handleExportTicketsCSV}
-                className="px-4 py-2.5 rounded-[3px] bg-white text-black text-xs font-medium flex items-center gap-2 cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                Exportar Lista Puerta (CSV)
-              </button>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h2 className="text-2xl font-normal text-white flex items-center gap-2">
+                  <QrCode className="w-6 h-6 text-[#ffb5d7]" />
+                  Padrón de Tickets QR Individuales
+                  <span className="text-sm font-mono text-[#8a8a8a]">
+                    ({filteredTickets.length} de {visibleTickets.length})
+                  </span>
+                </h2>
+                <p className="text-xs text-[#8a8a8a]">
+                  Control y verificación de accesos en puerta. Podés buscar asistentes, habilitar, bloquear o eliminar accesos y exportar el padrón oficial.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Selector de Modo de Vista */}
+                <div className="flex rounded-md border border-[#353535] bg-[#121212] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setTicketViewMode("lista")}
+                    className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition-all flex items-center gap-1.5 ${
+                      ticketViewMode === "lista"
+                        ? "bg-white text-black font-semibold shadow-sm"
+                        : "text-[#8a8a8a] hover:text-white"
+                    }`}
+                  >
+                    <Menu className="w-3.5 h-3.5" />
+                    Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTicketViewMode("tarjetas")}
+                    className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition-all flex items-center gap-1.5 ${
+                      ticketViewMode === "tarjetas"
+                        ? "bg-white text-black font-semibold shadow-sm"
+                        : "text-[#8a8a8a] hover:text-white"
+                    }`}
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    Tarjetas QR
+                  </button>
+                </div>
+
+                {/* Botón Exportar PDF */}
+                <button
+                  type="button"
+                  onClick={handleExportTicketsPDF}
+                  className="px-3.5 py-2 rounded-[3px] bg-[#ffb5d7] hover:bg-[#ffb5d7]/90 text-black text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                  title="Exportar padrón filtrado para imprimir o guardar como PDF"
+                >
+                  <Printer className="w-4 h-4" />
+                  Exportar Padrón PDF
+                </button>
+
+                {/* Botón Exportar CSV */}
+                <button
+                  type="button"
+                  onClick={handleExportTicketsCSV}
+                  className="px-3.5 py-2 rounded-[3px] bg-[#252525] hover:bg-[#353535] border border-[#404040] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Download className="w-4 h-4" />
+                  CSV
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {tickets.map((t) => (
-                <TicketQRCard key={t.id} ticket={t} compact />
-              ))}
+            {/* BARRA DE FILTROS Y BÚSQUEDA */}
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-[#181818] p-3.5 rounded-lg border border-[#2e2e2e]">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Filtro por Evento */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-[#8a8a8a] whitespace-nowrap">Evento:</span>
+                  <select
+                    value={ticketEventFilter}
+                    onChange={(e) => setTicketEventFilter(e.target.value)}
+                    className="bg-[#121212] border border-[#353535] text-white text-xs rounded px-3 py-1.5 focus:border-[#ffb5d7] focus:outline-none cursor-pointer max-w-[240px] truncate"
+                  >
+                    <option value="TODOS">Todos los Eventos ({visibleTickets.length})</option>
+                    {visibleEvents.map((ev) => {
+                      const count = visibleTickets.filter((t) => t.eventId === ev.id).length;
+                      return (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.title} ({count})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Filtro por Estado */}
+                <div className="flex flex-wrap gap-1 pl-2 border-l border-[#353535]">
+                  {[
+                    { id: "TODOS", label: "Todos", count: visibleTickets.length },
+                    {
+                      id: "VALIDO",
+                      label: "Válidos",
+                      count: visibleTickets.filter((t) => t.status === "VALIDO").length,
+                    },
+                    {
+                      id: "USADO",
+                      label: "Ingresados",
+                      count: visibleTickets.filter((t) => t.status === "USADO").length,
+                    },
+                    {
+                      id: "BLOQUEADO",
+                      label: "Bloqueados",
+                      count: visibleTickets.filter(
+                        (t) => t.status === "BLOQUEADO" || t.status === "ANULADO"
+                      ).length,
+                    },
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setTicketStatusFilter(st.id)}
+                      className={`px-2.5 py-1 rounded text-xs cursor-pointer transition-all ${
+                        ticketStatusFilter === st.id
+                          ? "bg-soft-pink text-black font-semibold"
+                          : "bg-[#121212] border border-[#353535] text-[#8a8a8a] hover:text-white"
+                      }`}
+                    >
+                      {st.label} ({st.count})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Buscador de Asistente */}
+              <div className="relative p-1.5 bg-[#121212] border border-[#353535] text-white rounded-md w-full xl:w-96">
+                <Search className="w-4 h-4 text-[#8a8a8a] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                  placeholder="Buscar por nombre, DNI, código QR o N° orden..."
+                  className="w-full pl-8 pr-3 py-1 bg-transparent text-xs text-white outline-none placeholder:text-[#8a8a8a]"
+                />
+              </div>
             </div>
+
+            {/* VISTA 1: TABLA / LISTA DE ACCESOS */}
+            {ticketViewMode === "lista" && (
+              <div className="overflow-x-auto rounded-lg border border-[#353535]">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#121212] text-[#8a8a8a] uppercase border-b border-[#353535]">
+                    <tr>
+                      <th className="py-3 px-4 w-12 text-center">#</th>
+                      <th className="py-3 px-4">Código</th>
+                      <th className="py-3 px-4">Nombre Asistente</th>
+                      <th className="py-3 px-4">DNI</th>
+                      <th className="py-3 px-4">Evento</th>
+                      <th className="py-3 px-4">Sector / Entrada</th>
+                      <th className="py-3 px-4">Orden</th>
+                      <th className="py-3 px-4 text-center">Estado</th>
+                      <th className="py-3 px-4 text-center">Hora Ingreso</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
+                    {filteredTickets.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="p-8 text-center text-[#8a8a8a] italic">
+                          No se encontraron accesos con los filtros aplicados.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTickets.map((t, idx) => {
+                        const isUsed = t.status === "USADO";
+                        const isBlocked =
+                          t.status === "BLOQUEADO" || t.status === "ANULADO";
+                        const isValid = t.status === "VALIDO";
+
+                        return (
+                          <tr
+                            key={t.id}
+                            className={`hover:bg-[#1c1c1c] transition-colors ${
+                              isBlocked ? "bg-red-950/10" : isUsed ? "bg-[#181818]" : ""
+                            }`}
+                          >
+                            <td className="py-3 px-4 text-center text-[#666] font-mono">
+                              {idx + 1}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-mono font-bold text-white px-2 py-0.5 rounded bg-[#252525] border border-[#404040]">
+                                {t.shortCode}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-semibold text-white block text-sm">
+                                {t.holderName}
+                              </span>
+                              {t.buyerPhone && (
+                                <span className="text-[11px] text-[#8a8a8a] block">
+                                  Tel: {t.buyerPhone}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-white/90">
+                              {t.holderDni || "-"}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-medium text-white block truncate max-w-[180px]">
+                                {t.eventTitle}
+                              </span>
+                              <span className="text-[10px] text-[#8a8a8a] block">
+                                {t.eventDateLabel}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-[#ffb5d7]">
+                              {t.tierName}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[#8a8a8a] text-[11px]">
+                              {t.orderCode}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {isValid ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/40 text-[11px] font-semibold">
+                                  <Check className="w-3 h-3" /> Válido
+                                </span>
+                              ) : isUsed ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-pink-950 text-pink-300 border border-pink-800/40 text-[11px] font-semibold">
+                                  ✓ Ingresado
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800/40 text-[11px] font-semibold">
+                                  ✕ Bloqueado
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center text-[#8a8a8a] text-[11px] whitespace-nowrap">
+                              {t.scannedAt ? (
+                                <span className="text-[#ffb5d7]">
+                                  {formatArgentinaDateTime(t.scannedAt)}
+                                </span>
+                              ) : (
+                                <span className="text-[#555]">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* Botón Habilitar (si está usado o bloqueado) */}
+                                {(isUsed || isBlocked) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRehabilitateTicket(t)}
+                                    className="px-2.5 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/50 flex items-center gap-1 text-[11px] font-medium cursor-pointer transition-colors"
+                                    title="Volver a habilitar para que pueda ingresar"
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
+                                    Habilitar
+                                  </button>
+                                )}
+
+                                {/* Botón Bloquear (si está válido) */}
+                                {isValid && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleBlockTicket(t)}
+                                    className="px-2.5 py-1 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-700/50 flex items-center gap-1 text-[11px] font-medium cursor-pointer transition-colors"
+                                    title="Bloquear acceso para que el lector QR lo rechace"
+                                  >
+                                    <Ban className="w-3 h-3" />
+                                    Bloquear
+                                  </button>
+                                )}
+
+                                {/* Botón Eliminar */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTicket(t)}
+                                  className="p-1 rounded bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/40 cursor-pointer transition-colors"
+                                  title="Eliminar este ticket del padrón"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* VISTA 2: TARJETAS QR CON BOTONES DE ACCIÓN */}
+            {ticketViewMode === "tarjetas" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {filteredTickets.map((t) => {
+                  const isUsed = t.status === "USADO";
+                  const isBlocked =
+                    t.status === "BLOQUEADO" || t.status === "ANULADO";
+                  const isValid = t.status === "VALIDO";
+
+                  return (
+                    <div
+                      key={t.id}
+                      className="rounded-xl overflow-hidden border border-[#353535] bg-[#161616] flex flex-col"
+                    >
+                      <TicketQRCard ticket={t} compact />
+                      
+                      {/* BARRA DE CONTROL DE ACCESO INFERIOR */}
+                      <div className="p-3 bg-[#111] border-t border-[#2a2a2a] flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-[#8a8a8a]">Estado:</span>
+                          {isValid ? (
+                            <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[10px] font-bold">
+                              VÁLIDO
+                            </span>
+                          ) : isUsed ? (
+                            <span className="px-2 py-0.5 rounded bg-pink-950 text-pink-300 text-[10px] font-bold">
+                              INGRESADO
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[10px] font-bold">
+                              BLOQUEADO
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {(isUsed || isBlocked) && (
+                            <button
+                              type="button"
+                              onClick={() => handleRehabilitateTicket(t)}
+                              className="px-2 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/50 text-[11px] flex items-center gap-1 cursor-pointer"
+                              title="Habilitar ticket"
+                            >
+                              <RefreshCw className="w-3 h-3" /> Habilitar
+                            </button>
+                          )}
+                          {isValid && (
+                            <button
+                              type="button"
+                              onClick={() => handleBlockTicket(t)}
+                              className="px-2 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-700/50 text-[11px] flex items-center gap-1 cursor-pointer"
+                              title="Bloquear ticket"
+                            >
+                              <Ban className="w-3 h-3" /> Bloquear
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTicket(t)}
+                            className="p-1 rounded bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/40 cursor-pointer"
+                            title="Eliminar ticket"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
