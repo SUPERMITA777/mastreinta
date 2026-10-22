@@ -39,6 +39,7 @@ import {
   Undo2,
   X,
   Compass,
+  Copy,
 } from "lucide-react";
 
 interface VenueMapEditorProps {
@@ -268,6 +269,65 @@ export default function VenueMapEditor({
       setPolygonForm({ ...polygonForm, points: updatedPoints });
     }
     onSaveMap({ enabled, sectors, spots, polygons: updatedPolygons });
+  };
+
+  // Duplicar / Copiar spot (mesa) copiando accesos, precio y todos sus datos
+  const handleDuplicateSpot = (sourceSpot: VenueSpot) => {
+    const newId = `spot-${sourceSpot.type.toLowerCase()}-${Date.now()}`;
+    const newSpot: VenueSpot = {
+      ...sourceSpot,
+      id: newId,
+      name: `${sourceSpot.name} (Copia)`,
+      x: Math.min(94, Math.max(6, sourceSpot.x + 3)),
+      y: Math.min(94, Math.max(6, sourceSpot.y + 3)),
+      status: "DISPONIBLE",
+      reservedByOrderCode: undefined,
+      reservedByName: undefined,
+    };
+    const updatedSpots = [...spots, newSpot];
+    setSpots(updatedSpots);
+    handleSelectSpot(newSpot);
+    onSaveMap({ enabled, sectors, spots: updatedSpots, polygons });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
+  // Duplicar etiqueta de sector
+  const handleDuplicateSector = (sourceSec: VenueSectorLabel) => {
+    const newId = `sec-${Date.now()}`;
+    const newSec: VenueSectorLabel = {
+      ...sourceSec,
+      id: newId,
+      name: `${sourceSec.name} (Copia)`,
+      x: Math.min(94, Math.max(6, sourceSec.x + 3)),
+      y: Math.min(94, Math.max(6, sourceSec.y + 3)),
+    };
+    const updated = [...sectors, newSec];
+    setSectors(updated);
+    handleSelectSector(newSec);
+    onSaveMap({ enabled, sectors: updated, spots, polygons });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
+  // Duplicar polígono
+  const handleDuplicatePolygon = (sourcePoly: VenuePolygon) => {
+    const newId = `poly-${Date.now()}`;
+    const newPoly: VenuePolygon = {
+      ...sourcePoly,
+      id: newId,
+      name: `${sourcePoly.name} (Copia)`,
+      points: sourcePoly.points.map((pt) => ({
+        x: Math.min(98, Math.max(2, pt.x + 3)),
+        y: Math.min(98, Math.max(2, pt.y + 3)),
+      })),
+    };
+    const updated = [...polygons, newPoly];
+    setPolygons(updated);
+    handleSelectPolygon(newPoly);
+    onSaveMap({ enabled, sectors, spots, polygons: updated });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
   };
 
   // Presets de mesas y livings
@@ -1056,12 +1116,6 @@ export default function VenueMapEditor({
                     </span>
                   </div>
 
-                  {spot.perks && (
-                    <span className="text-[8px] text-white/70 truncate max-w-[95%] mt-0.5 hidden sm:inline">
-                      {spot.perks}
-                    </span>
-                  )}
-
                   {/* Estado indicator */}
                   <span className="text-[8px] uppercase tracking-wider font-bold mt-0.5 opacity-80">
                     {spot.status}
@@ -1429,6 +1483,15 @@ export default function VenueMapEditor({
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleDuplicateSpot(spotForm)}
+                      className="py-2 px-3 rounded-lg text-xs font-bold bg-[#262626] hover:bg-[#333] border border-[#444] text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Copiar mesa (duplica precio, accesos y dimensiones)"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                      <span>Copiar</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDeleteSpot(spotForm.id)}
                       className="p-2 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 transition-colors cursor-pointer"
                       title="Eliminar del mapa"
@@ -1551,6 +1614,15 @@ export default function VenueMapEditor({
                       className="flex-1 py-2 px-3 rounded-lg text-xs font-bold bg-soft-pink text-[#1c1c1c] hover:bg-white transition-colors cursor-pointer"
                     >
                       Guardar Elemento
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicatePolygon(polygonForm)}
+                      className="py-2 px-3 rounded-lg text-xs font-bold bg-[#262626] hover:bg-[#333] border border-[#444] text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Copiar elemento"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                      <span>Copiar</span>
                     </button>
                     <button
                       type="button"
@@ -1692,6 +1764,15 @@ export default function VenueMapEditor({
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleDuplicateSector(sectorForm)}
+                      className="py-2 px-3 rounded-lg text-xs font-bold bg-[#262626] hover:bg-[#333] border border-[#444] text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Copiar etiqueta"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                      <span>Copiar</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDeleteSector(sectorForm.id)}
                       className="p-2 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 transition-colors cursor-pointer"
                       title="Eliminar etiqueta"
@@ -1817,6 +1898,15 @@ export default function VenueMapEditor({
                           className="px-2.5 py-1 rounded bg-[#252525] hover:bg-[#333] text-white text-[11px] font-medium transition-colors cursor-pointer"
                         >
                           Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateSpot(spot)}
+                          className="px-2 py-1 rounded bg-[#252525] hover:bg-[#333] text-[#ffb5d7] hover:text-white text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                          title="Copiar / Duplicar mesa con precio y accesos"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copiar</span>
                         </button>
                         {spot.status === "DISPONIBLE" ? (
                           <button
