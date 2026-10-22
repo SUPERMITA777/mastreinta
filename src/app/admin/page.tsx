@@ -1039,7 +1039,7 @@ export default function AdminDashboardPage() {
                 required
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
-                placeholder="superadmin, admin, lector..."
+                placeholder="Ingresá tu usuario"
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
               />
             </div>
@@ -1065,74 +1065,6 @@ export default function AdminDashboardPage() {
               Ingresar al Panel
             </button>
           </form>
-
-          <div className="pt-4 border-t border-[#353535] space-y-2">
-            <p className="text-[11px] text-[#8a8a8a]">
-              Accesos iniciales configurados:
-            </p>
-            <div className="grid grid-cols-1 gap-1.5 text-[11px]">
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername("superadmin");
-                  setLoginPassword("supermas30");
-                }}
-                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#ffb5d7]/40 cursor-pointer flex items-center justify-between"
-              >
-                <div>
-                  <span className="text-[#ffb5d7] font-mono font-medium block">
-                    superadmin / supermas30
-                  </span>
-                  <span className="text-white/80">
-                    Superadmin · Control Total & Gestión de Roles
-                  </span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#AF2C75] text-white">
-                  SUPERADMIN
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername("admin");
-                  setLoginPassword("mas30admin");
-                }}
-                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer flex items-center justify-between"
-              >
-                <div>
-                  <span className="text-white font-mono block">
-                    admin / mas30admin
-                  </span>
-                  <span className="text-[#8a8a8a]">
-                    Admin · Solo sus eventos asignados
-                  </span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#353535] text-white/70">
-                  ADMIN
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername("lector");
-                  setLoginPassword("lector2026");
-                }}
-                className="p-2 rounded bg-[#121212] hover:bg-[#252525] text-left border border-[#353535] cursor-pointer flex items-center justify-between"
-              >
-                <div>
-                  <span className="text-white font-mono block">
-                    lector / lector2026
-                  </span>
-                  <span className="text-[#8a8a8a]">
-                    Lector QR · Solo validar usuarios en puerta
-                  </span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300">
-                  LECTOR_QR
-                </span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     );
