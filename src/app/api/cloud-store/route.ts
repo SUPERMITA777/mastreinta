@@ -6,6 +6,7 @@ import {
   ADMIN_API_SECRET,
   getAdminSupabase,
 } from "@/lib/cloudState.server";
+import { getArgentinaDateKey } from "@/lib/dateUtils";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -135,6 +136,7 @@ export async function POST(req: Request) {
             pageViews: number;
             whatsappClicks: number;
             lastVisitedAt?: string;
+            dailyVisits?: Record<string, number>;
           }
         >) || {}),
       };
@@ -144,7 +146,11 @@ export async function POST(req: Request) {
       let totalWhatsappClicks = Number(rawAnalytics.totalWhatsappClicks) || 0;
 
       const nowIso = new Date().toISOString();
-      const todayKey = nowIso.slice(0, 10);
+      const todayKey =
+        typeof payload.todayKey === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(payload.todayKey)
+          ? payload.todayKey
+          : getArgentinaDateKey();
       const visitType = String(payload.type || "site");
       const eventId = payload.eventId ? String(payload.eventId) : "";
 
@@ -161,12 +167,16 @@ export async function POST(req: Request) {
           modalOpens: 0,
           pageViews: 0,
           whatsappClicks: 0,
+          dailyVisits: {},
         };
+        const prevDaily = { ...(prev.dailyVisits || {}) };
+        prevDaily[todayKey] = (prevDaily[todayKey] || 0) + 1;
         eventStats[eventId] = {
           ...prev,
           views: (Number(prev.views) || 0) + 1,
           modalOpens: (Number(prev.modalOpens) || 0) + 1,
           lastVisitedAt: nowIso,
+          dailyVisits: prevDaily,
         };
       } else if (visitType === "event_page" && eventId) {
         totalSiteVisits += 1;
@@ -176,12 +186,16 @@ export async function POST(req: Request) {
           modalOpens: 0,
           pageViews: 0,
           whatsappClicks: 0,
+          dailyVisits: {},
         };
+        const prevDaily = { ...(prev.dailyVisits || {}) };
+        prevDaily[todayKey] = (prevDaily[todayKey] || 0) + 1;
         eventStats[eventId] = {
           ...prev,
           views: (Number(prev.views) || 0) + 1,
           pageViews: (Number(prev.pageViews) || 0) + 1,
           lastVisitedAt: nowIso,
+          dailyVisits: prevDaily,
         };
       } else if (visitType === "whatsapp_click") {
         totalWhatsappClicks += 1;
@@ -191,6 +205,7 @@ export async function POST(req: Request) {
             modalOpens: 0,
             pageViews: 0,
             whatsappClicks: 0,
+            dailyVisits: {},
           };
           eventStats[eventId] = {
             ...prev,

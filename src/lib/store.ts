@@ -4,6 +4,7 @@ import {
   AdminRoleDefinition,
   AdminUser,
   BankSettings,
+  EventAnalyticsItem,
   EventItem,
   InquiryItem,
   OrderAttendeeInput,
@@ -13,6 +14,7 @@ import {
   TicketQR,
 } from "./types";
 import { getSupabaseClient } from "./supabase";
+import { getArgentinaDateKey } from "./dateUtils";
 
 const STORAGE_KEYS = {
   EVENTS: "mas30_events_v3",
@@ -1892,12 +1894,29 @@ export function getAnalytics(): SiteAnalytics {
   if (!raw) return INITIAL_ANALYTICS;
   try {
     const parsed = JSON.parse(raw);
+    const eventStats: Record<string, EventAnalyticsItem> = {};
+    if (parsed?.eventStats && typeof parsed.eventStats === "object") {
+      for (const [key, val] of Object.entries(parsed.eventStats)) {
+        const item = val as Partial<EventAnalyticsItem> | undefined;
+        eventStats[key] = {
+          views: Number(item?.views) || 0,
+          modalOpens: Number(item?.modalOpens) || 0,
+          pageViews: Number(item?.pageViews) || 0,
+          whatsappClicks: Number(item?.whatsappClicks) || 0,
+          lastVisitedAt: item?.lastVisitedAt,
+          dailyVisits:
+            item?.dailyVisits && typeof item.dailyVisits === "object"
+              ? item.dailyVisits
+              : {},
+        };
+      }
+    }
     return {
       totalSiteVisits: Number(parsed?.totalSiteVisits) || 0,
       uniqueVisitors: Number(parsed?.uniqueVisitors) || 0,
       totalWhatsappClicks: Number(parsed?.totalWhatsappClicks) || 0,
       dailyVisits: parsed?.dailyVisits || {},
-      eventStats: parsed?.eventStats || {},
+      eventStats,
       updatedAt: parsed?.updatedAt,
     };
   } catch {
@@ -1924,10 +1943,10 @@ export async function trackVisit(
     isNewVisitor = true;
   }
 
-  // Actualizar optimistamente en localStorage
+  // Actualizar optimistamente en localStorage respetando la zona horaria de Buenos Aires
   const current = getAnalytics();
   const nowIso = new Date().toISOString();
-  const todayKey = nowIso.slice(0, 10);
+  const todayKey = getArgentinaDateKey();
   const dailyVisits = { ...current.dailyVisits };
   const eventStats = { ...current.eventStats };
 
@@ -1944,12 +1963,16 @@ export async function trackVisit(
       modalOpens: 0,
       pageViews: 0,
       whatsappClicks: 0,
+      dailyVisits: {},
     };
+    const prevDaily = { ...(prev.dailyVisits || {}) };
+    prevDaily[todayKey] = (prevDaily[todayKey] || 0) + 1;
     eventStats[eventId] = {
       ...prev,
       views: (Number(prev.views) || 0) + 1,
       modalOpens: (Number(prev.modalOpens) || 0) + 1,
       lastVisitedAt: nowIso,
+      dailyVisits: prevDaily,
     };
   } else if (type === "event_page" && eventId) {
     totalSiteVisits += 1;
@@ -1959,12 +1982,16 @@ export async function trackVisit(
       modalOpens: 0,
       pageViews: 0,
       whatsappClicks: 0,
+      dailyVisits: {},
     };
+    const prevDaily = { ...(prev.dailyVisits || {}) };
+    prevDaily[todayKey] = (prevDaily[todayKey] || 0) + 1;
     eventStats[eventId] = {
       ...prev,
       views: (Number(prev.views) || 0) + 1,
       pageViews: (Number(prev.pageViews) || 0) + 1,
       lastVisitedAt: nowIso,
+      dailyVisits: prevDaily,
     };
   } else if (type === "whatsapp_click") {
     totalWhatsappClicks += 1;
@@ -1974,6 +2001,7 @@ export async function trackVisit(
         modalOpens: 0,
         pageViews: 0,
         whatsappClicks: 0,
+        dailyVisits: {},
       };
       eventStats[eventId] = {
         ...prev,
@@ -1999,7 +2027,7 @@ export async function trackVisit(
     // ignore
   }
 
-  // Persistir en Supabase Cloud
+  // Persistir en Supabase Cloud con la fecha de Buenos Aires
   try {
     const res = await fetch("/api/cloud-store", {
       method: "POST",
@@ -2009,6 +2037,7 @@ export async function trackVisit(
         type,
         eventId,
         isNewVisitor,
+        todayKey,
       }),
     });
     if (res.ok) {

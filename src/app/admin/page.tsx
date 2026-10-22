@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
+  Calendar,
   Check,
   CheckCircle2,
   Clock,
@@ -100,6 +101,12 @@ import {
   buildMapEmbedUrl,
   getEventText,
 } from "@/lib/eventTexts";
+import {
+  getArgentinaDateKey,
+  formatArgentinaDate,
+  formatArgentinaDateTime,
+  TIMEZONE_ARGENTINA,
+} from "@/lib/dateUtils";
 
 type AdminTab =
   | "reservas"
@@ -169,6 +176,11 @@ export default function AdminDashboardPage() {
   const [bankSettings, setBankSettings] =
     useState<BankSettings>(INITIAL_SETTINGS);
   const [analytics, setAnalytics] = useState<SiteAnalytics>(INITIAL_ANALYTICS);
+  const [expandedEventDaily, setExpandedEventDaily] = useState<
+    Record<string, boolean>
+  >({});
+  const [dailyVisitsEventFilter, setDailyVisitsEventFilter] =
+    useState<string>("TODOS");
 
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("TODOS");
   const [orderSearch, setOrderSearch] = useState("");
@@ -825,11 +837,11 @@ export default function AdminDashboardPage() {
       t.scannedAt || "-",
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Padron-Puerta-MAS30-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `Padron-Puerta-MAS30-${getArgentinaDateKey()}.csv`;
     a.click();
   };
 
@@ -915,11 +927,57 @@ export default function AdminDashboardPage() {
       `"${o.transferReference} (${o.transferSender})"`,
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Rendicion-Caja-MAS30-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `Rendicion-Caja-MAS30-${getArgentinaDateKey()}.csv`;
+    a.click();
+  };
+
+  const handleExportDailyVisitsCSV = () => {
+    const allDatesSet = new Set<string>();
+    Object.keys(analytics.dailyVisits || {}).forEach((d) => allDatesSet.add(d));
+    Object.values(analytics.eventStats || {}).forEach((st) => {
+      Object.keys(st.dailyVisits || {}).forEach((d) => allDatesSet.add(d));
+    });
+
+    const sortedDates = Array.from(allDatesSet).sort((a, b) =>
+      b.localeCompare(a)
+    );
+    const eventsList = visibleEvents;
+
+    const headers = [
+      "Fecha (Buenos Aires)",
+      "Dia",
+      "Visitas Totales Web",
+      ...eventsList.map((e) => `"${e.title.replace(/"/g, '""')}"`),
+    ];
+
+    const rows = sortedDates.map((dateKey) => {
+      const dayFormatted = formatArgentinaDate(dateKey, {
+        includeWeekday: true,
+      });
+      const dayName = dayFormatted.split(",")[0] || "";
+      const siteVisits = analytics.dailyVisits[dateKey] || 0;
+      const eventCols = eventsList.map((e) => {
+        const evDaily = analytics.eventStats[e.id]?.dailyVisits || {};
+        return evDaily[dateKey] || 0;
+      });
+      return [
+        dateKey,
+        `"${dayName}"`,
+        siteVisits,
+        ...eventCols,
+      ];
+    });
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Visitas-Diarias-Eventos-MAS30-${getArgentinaDateKey()}.csv`;
     a.click();
   };
 
@@ -2554,6 +2612,11 @@ export default function AdminDashboardPage() {
                                   <strong className="text-white">
                                     {analytics.eventStats[ev.id]?.views || 0}
                                   </strong>
+                                  {analytics.eventStats[ev.id]?.dailyVisits?.[getArgentinaDateKey()] ? (
+                                    <span className="text-[10px] text-[#ffb5d7] ml-1 font-mono">
+                                      (Hoy: {analytics.eventStats[ev.id]?.dailyVisits?.[getArgentinaDateKey()]})
+                                    </span>
+                                  ) : null}
                                 </span>
                                 <span>
                                   💬 Clics WhatsApp:{" "}
@@ -2671,44 +2734,64 @@ export default function AdminDashboardPage() {
             <div className="rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase font-medium">
                     <BarChart3 className="w-4 h-4" />
                     Tráfico en Tiempo Real & Visibilidad
                   </div>
                   <h2 className="text-2xl font-normal text-white">
                     Visitas a la Página y Rendimiento por Evento
                   </h2>
-                  <p className="text-xs text-[#8a8a8a]">
-                    Mide cuántas personas entran a la web, cuántas abren cada
-                    evento y cuántas tocan el botón de WhatsApp para comprar.
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[#8a8a8a]">
+                    <span>
+                      Mide el ingreso de personas a la web y las visitas a cada evento día por día.
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-[#252525] text-[#ffb5d7] text-[11px] font-mono">
+                      Zona horaria: Buenos Aires (GMT-3)
+                    </span>
+                  </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (
-                      confirm(
-                        "¿Querés reiniciar todos los contadores de visitas a cero?"
-                      )
-                    ) {
-                      await resetAnalytics();
-                      syncAll();
-                    }
-                  }}
-                  className="px-4 py-2.5 rounded-[3px] bg-[#353535] hover:bg-[#454545] text-white/80 hover:text-white text-xs cursor-pointer self-start sm:self-auto"
-                >
-                  Reiniciar Contadores
-                </button>
+                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handleExportDailyVisitsCSV}
+                    className="px-3.5 py-2 rounded-[3px] bg-white text-black hover:bg-white/90 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Exportar Visitas Día a Día (.csv)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (
+                        confirm(
+                          "¿Querés reiniciar todos los contadores de visitas a cero?"
+                        )
+                      ) {
+                        await resetAnalytics();
+                        syncAll();
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-[3px] bg-[#353535] hover:bg-[#454545] text-white/80 hover:text-white text-xs cursor-pointer"
+                  >
+                    Reiniciar Contadores
+                  </button>
+                </div>
               </div>
 
               {/* 4 TARJETAS DE TRÁFICO GENERAL */}
               {(() => {
-                const todayKey = new Date().toISOString().slice(0, 10);
+                const todayKey = getArgentinaDateKey();
                 const todayVisits = analytics.dailyVisits[todayKey] || 0;
                 const totalEventViews = Object.values(
                   analytics.eventStats || {}
                 ).reduce((acc, s) => acc + (Number(s?.views) || 0), 0);
+                const todayEventViews = Object.values(
+                  analytics.eventStats || {}
+                ).reduce(
+                  (acc, s) => acc + (Number(s?.dailyVisits?.[todayKey]) || 0),
+                  0
+                );
 
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2720,7 +2803,7 @@ export default function AdminDashboardPage() {
                         {analytics.totalSiteVisits}
                       </p>
                       <p className="text-xs text-[#ffb5d7]">
-                        Hoy ({todayKey}): {todayVisits} visitas
+                        Hoy ({formatArgentinaDate(todayKey, { includeWeekday: true })}): {todayVisits} visitas
                       </p>
                     </div>
 
@@ -2744,7 +2827,7 @@ export default function AdminDashboardPage() {
                         {totalEventViews}
                       </p>
                       <p className="text-xs text-[#8a8a8a]">
-                        Aperturas de modal + links directos
+                        Hoy: {todayEventViews} aperturas
                       </p>
                     </div>
 
@@ -2765,9 +2848,14 @@ export default function AdminDashboardPage() {
 
               {/* VISIBILIDAD DETALLADA POR CADA EVENTO */}
               <div className="space-y-4 pt-4 border-t border-[#353535]">
-                <h3 className="text-base font-medium text-white">
-                  Visibilidad, Tráfico y Disponibilidad por Evento
-                </h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h3 className="text-base font-medium text-white">
+                    Visibilidad, Tráfico y Disponibilidad por Evento
+                  </h3>
+                  <span className="text-xs text-[#8a8a8a]">
+                    Hacé clic en &quot;Ver días&quot; en cualquier evento para ver su desglose individual.
+                  </span>
+                </div>
 
                 <div className="overflow-x-auto rounded-lg border border-[#353535]">
                   <table className="w-full text-left text-xs">
@@ -2797,6 +2885,7 @@ export default function AdminDashboardPage() {
                     </thead>
                     <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
                       {(() => {
+                        const todayKey = getArgentinaDateKey();
                         const maxViews = Math.max(
                           1,
                           ...visibleEvents.map(
@@ -2809,6 +2898,7 @@ export default function AdminDashboardPage() {
                             modalOpens: 0,
                             pageViews: 0,
                             whatsappClicks: 0,
+                            dailyVisits: {},
                           };
                           const totalStock = ev.ticketTiers.reduce(
                             (acc, t) => acc + (Number(t.stock) || 0),
@@ -2824,75 +2914,173 @@ export default function AdminDashboardPage() {
                           );
                           const isPublicNow = isEventVisiblePublicly(ev);
                           const pct = Math.round((st.views / maxViews) * 100);
+                          const isExpanded = !!expandedEventDaily[ev.id];
+                          const daysCount = Object.keys(st.dailyVisits || {}).length;
+                          const todayCount = st.dailyVisits?.[todayKey] || 0;
 
                           return (
-                            <tr key={ev.id} className="hover:bg-[#1c1c1c]">
-                              <td className="py-3.5 px-4">
-                                <span className="font-medium text-white block text-sm">
-                                  {ev.title}
-                                </span>
-                                <span className="text-[#8a8a8a] text-[11px]">
-                                  {ev.dateLabel} · {ev.venueName}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4">
-                                {ev.hidden ? (
-                                  <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[11px]">
-                                    Oculto
+                            <React.Fragment key={ev.id}>
+                              <tr className="hover:bg-[#1c1c1c]">
+                                <td className="py-3.5 px-4">
+                                  <span className="font-medium text-white block text-sm">
+                                    {ev.title}
                                   </span>
-                                ) : isPublicNow ? (
-                                  <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[11px]">
-                                    Visible en Web
+                                  <span className="text-[#8a8a8a] text-[11px]">
+                                    {ev.dateLabel} · {ev.venueName}
                                   </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded bg-[#353535] text-[#ffb5d7] text-[11px]">
-                                    Programado
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  {ev.hidden ? (
+                                    <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-[11px]">
+                                      Oculto
+                                    </span>
+                                  ) : isPublicNow ? (
+                                    <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 text-[11px]">
+                                      Visible en Web
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded bg-[#353535] text-[#ffb5d7] text-[11px]">
+                                      Programado
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 text-center">
+                                  <span className="text-base font-semibold text-white block">
+                                    {st.views}
                                   </span>
-                                )}
-                              </td>
-                              <td className="py-3.5 px-4 text-center">
-                                <span className="text-base font-semibold text-white block">
-                                  {st.views}
-                                </span>
-                                <div className="w-24 mx-auto h-1.5 rounded-full bg-[#2a2a2a] overflow-hidden mt-1">
-                                  <div
-                                    className="h-full bg-[#ffb5d7]"
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                              </td>
-                              <td className="py-3.5 px-4 text-center text-[#8a8a8a]">
-                                {st.modalOpens || 0} modal · {st.pageViews || 0}{" "}
-                                pág.
-                              </td>
-                              <td className="py-3.5 px-4 text-center">
-                                <span className="px-2.5 py-1 rounded bg-[#252525] text-[#ffb5d7] font-medium">
-                                  {st.whatsappClicks || 0}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 text-center font-medium text-white">
-                                {totalSold}
-                              </td>
-                              <td className="py-3.5 px-4 text-center font-medium text-emerald-400">
-                                {totalAvailable}{" "}
-                                <span className="text-[#8a8a8a] font-normal">
-                                  / {totalStock}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 text-right text-[#8a8a8a] whitespace-nowrap">
-                                {st.lastVisitedAt
-                                  ? new Date(st.lastVisitedAt).toLocaleString(
-                                      "es-AR",
-                                      {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      }
-                                    )
-                                  : "Sin visitas aún"}
-                              </td>
-                            </tr>
+                                  <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] bg-[#ffb5d7]/10 text-[#ffb5d7] font-medium font-mono">
+                                    Hoy: {todayCount}
+                                  </span>
+                                  <div className="w-24 mx-auto h-1.5 rounded-full bg-[#2a2a2a] overflow-hidden mt-1">
+                                    <div
+                                      className="h-full bg-[#ffb5d7]"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedEventDaily((prev) => ({
+                                        ...prev,
+                                        [ev.id]: !prev[ev.id],
+                                      }))
+                                    }
+                                    className="mt-1 text-[11px] text-[#ffb5d7] hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
+                                  >
+                                    {isExpanded
+                                      ? "Ocultar días ▲"
+                                      : `Ver días (${daysCount}) ▾`}
+                                  </button>
+                                </td>
+                                <td className="py-3.5 px-4 text-center text-[#8a8a8a]">
+                                  {st.modalOpens || 0} modal · {st.pageViews || 0}{" "}
+                                  pág.
+                                </td>
+                                <td className="py-3.5 px-4 text-center">
+                                  <span className="px-2.5 py-1 rounded bg-[#252525] text-[#ffb5d7] font-medium">
+                                    {st.whatsappClicks || 0}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-center font-medium text-white">
+                                  {totalSold}
+                                </td>
+                                <td className="py-3.5 px-4 text-center font-medium text-emerald-400">
+                                  {totalAvailable}{" "}
+                                  <span className="text-[#8a8a8a] font-normal">
+                                    / {totalStock}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-right text-[#8a8a8a] whitespace-nowrap">
+                                  {st.lastVisitedAt
+                                    ? formatArgentinaDateTime(st.lastVisitedAt)
+                                    : "Sin visitas aún"}
+                                </td>
+                              </tr>
+
+                              {/* SUB-FILA EXPANDIBLE CON EL DESGLOSE DÍA POR DÍA DE ESTE EVENTO */}
+                              {isExpanded && (
+                                <tr className="bg-[#181818] border-b border-[#353535]">
+                                  <td colSpan={8} className="p-4">
+                                    <div className="rounded-lg bg-[#121212] border border-[#353535] p-4 space-y-3">
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2a2a2a] pb-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-semibold text-white">
+                                            Historial Día por Día: {ev.title}
+                                          </span>
+                                          <span className="text-[11px] px-2 py-0.5 rounded bg-[#252525] text-[#8a8a8a]">
+                                            Hora oficial: Buenos Aires (GMT-3)
+                                          </span>
+                                        </div>
+                                        <span className="text-xs text-[#8a8a8a]">
+                                          Total acumulado:{" "}
+                                          <strong className="text-[#ffb5d7]">
+                                            {st.views}
+                                          </strong>{" "}
+                                          visitas | Hoy:{" "}
+                                          <strong className="text-white">
+                                            {todayCount}
+                                          </strong>
+                                        </span>
+                                      </div>
+
+                                      {daysCount === 0 ? (
+                                        <p className="text-xs text-[#8a8a8a] py-2 italic">
+                                          Aún no se han registrado visitas por día para este evento.
+                                        </p>
+                                      ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-1">
+                                          {Object.entries(st.dailyVisits || {})
+                                            .sort(([a], [b]) => b.localeCompare(a))
+                                            .map(([dKey, count]) => {
+                                              const isDayToday = dKey === todayKey;
+                                              const dayPct =
+                                                st.views > 0
+                                                  ? Math.round(
+                                                      (count / st.views) * 100
+                                                    )
+                                                  : 0;
+                                              return (
+                                                <div
+                                                  key={dKey}
+                                                  className={`p-2.5 rounded border text-center transition-all ${
+                                                    isDayToday
+                                                      ? "bg-[#ffb5d7]/10 border-[#ffb5d7]/50 ring-1 ring-[#ffb5d7]/30"
+                                                      : "bg-[#161616] border-[#303030]"
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center justify-between text-[10px] text-[#8a8a8a] mb-1 font-mono">
+                                                    <span>
+                                                      {
+                                                        formatArgentinaDate(dKey, {
+                                                          includeWeekday: true,
+                                                        }).split(",")[0]
+                                                      }
+                                                    </span>
+                                                    {isDayToday && (
+                                                      <span className="px-1 py-0.2 rounded bg-[#ffb5d7] text-black font-semibold text-[9px]">
+                                                        HOY
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <span className="text-xs text-white block font-mono font-medium">
+                                                    {formatArgentinaDate(dKey)}
+                                                  </span>
+                                                  <strong className="text-lg text-[#ffb5d7] block mt-0.5">
+                                                    {count}
+                                                  </strong>
+                                                  <span className="text-[10px] text-[#8a8a8a] block">
+                                                    visitas ({dayPct}%)
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         });
                       })()}
@@ -2901,32 +3089,346 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* HISTORIAL DE VISITAS POR DÍA */}
+              {/* SECCIÓN INTERACTIVA: DESGLOSE DE VISITAS DÍA POR DÍA POR EVENTO */}
+              <div className="space-y-4 pt-4 border-t border-[#353535]">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <h3 className="text-base font-medium text-white flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-[#ffb5d7]" />
+                      Detalle Día por Día de Visitas por Evento
+                    </h3>
+                    <p className="text-xs text-[#8a8a8a]">
+                      Evolución diaria de visitas para cada evento en hora oficial argentina (UTC-3).
+                    </p>
+                  </div>
+
+                  {/* Selector de Evento */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#8a8a8a]">Filtrar evento:</span>
+                    <select
+                      value={dailyVisitsEventFilter}
+                      onChange={(e) => setDailyVisitsEventFilter(e.target.value)}
+                      className="bg-[#121212] border border-[#353535] text-white text-xs rounded px-3 py-1.5 focus:border-[#ffb5d7] focus:outline-none"
+                    >
+                      <option value="TODOS">Todos los eventos (Comparativa)</option>
+                      {visibleEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.title} ({analytics.eventStats[ev.id]?.views || 0} visitas)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* VISTA SEGÚN FILTRO: COMPARATIVA O ESPECÍFICA */}
+                {(() => {
+                  const todayKey = getArgentinaDateKey();
+                  const allDatesSet = new Set<string>();
+                  Object.keys(analytics.dailyVisits || {}).forEach((d) =>
+                    allDatesSet.add(d)
+                  );
+                  Object.values(analytics.eventStats || {}).forEach((st) => {
+                    Object.keys(st.dailyVisits || {}).forEach((d) =>
+                      allDatesSet.add(d)
+                    );
+                  });
+                  const sortedDates = Array.from(allDatesSet).sort((a, b) =>
+                    b.localeCompare(a)
+                  );
+
+                  if (sortedDates.length === 0) {
+                    return (
+                      <div className="p-6 rounded-lg bg-[#121212] border border-[#353535] text-center text-[#8a8a8a] text-xs">
+                        Aún no hay visitas diarias registradas.
+                      </div>
+                    );
+                  }
+
+                  if (dailyVisitsEventFilter === "TODOS") {
+                    return (
+                      <div className="overflow-x-auto rounded-lg border border-[#353535]">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[#121212] text-[#8a8a8a] uppercase border-b border-[#353535]">
+                            <tr>
+                              <th className="py-3 px-4">Fecha (Bs. As.)</th>
+                              <th className="py-3 px-4 text-center">
+                                Visitas Web Totales
+                              </th>
+                              {visibleEvents.map((ev) => (
+                                <th
+                                  key={ev.id}
+                                  className="py-3 px-4 text-center"
+                                >
+                                  {ev.title}
+                                </th>
+                              ))}
+                              <th className="py-3 px-4 text-center text-[#ffb5d7]">
+                                Total Vistas Eventos
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#353535] bg-[#121212]/40 font-mono">
+                            {sortedDates.map((dKey) => {
+                              const isToday = dKey === todayKey;
+                              const siteCount =
+                                analytics.dailyVisits[dKey] || 0;
+                              let dayEventsTotal = 0;
+
+                              return (
+                                <tr
+                                  key={dKey}
+                                  className={`hover:bg-[#1c1c1c] ${
+                                    isToday ? "bg-[#ffb5d7]/5 font-semibold" : ""
+                                  }`}
+                                >
+                                  <td className="py-3 px-4">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-white font-medium">
+                                        {formatArgentinaDate(dKey, {
+                                          includeWeekday: true,
+                                        })}
+                                      </span>
+                                      {isToday && (
+                                        <span className="px-1.5 py-0.5 rounded bg-[#ffb5d7] text-black text-[9px] font-bold uppercase">
+                                          Hoy
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-[#8a8a8a] block">
+                                      {dKey}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-center text-white font-medium">
+                                    {siteCount > 0 ? (
+                                      <span className="px-2 py-0.5 rounded bg-[#252525]">
+                                        {siteCount}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[#555]">-</span>
+                                    )}
+                                  </td>
+                                  {visibleEvents.map((ev) => {
+                                    const evDaily =
+                                      analytics.eventStats[ev.id]?.dailyVisits ||
+                                      {};
+                                    const c = evDaily[dKey] || 0;
+                                    dayEventsTotal += c;
+                                    return (
+                                      <td
+                                        key={ev.id}
+                                        className="py-3 px-4 text-center"
+                                      >
+                                        {c > 0 ? (
+                                          <span className="px-2 py-0.5 rounded bg-[#ffb5d7]/15 text-[#ffb5d7] font-semibold">
+                                            {c}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[#454545]">
+                                            -
+                                          </span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="py-3 px-4 text-center text-[#ffb5d7] font-semibold">
+                                    {dayEventsTotal > 0 ? (
+                                      dayEventsTotal
+                                    ) : (
+                                      <span className="text-[#555]">-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  }
+
+                  // Evento específico seleccionado
+                  const targetEvent = visibleEvents.find(
+                    (e) => e.id === dailyVisitsEventFilter
+                  );
+                  const st = targetEvent
+                    ? analytics.eventStats[targetEvent.id]
+                    : undefined;
+                  const evDaily = st?.dailyVisits || {};
+                  const eventTotal = st?.views || 0;
+                  const activeDaysCount = Object.keys(evDaily).length;
+                  const avgPerDay =
+                    activeDaysCount > 0
+                      ? Math.round(eventTotal / activeDaysCount)
+                      : 0;
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Resumen del evento seleccionado */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="p-3.5 rounded bg-[#121212] border border-[#353535]">
+                          <span className="text-[11px] text-[#8a8a8a] block">
+                            Evento
+                          </span>
+                          <span className="text-sm font-semibold text-white truncate block">
+                            {targetEvent?.title || "Evento"}
+                          </span>
+                        </div>
+                        <div className="p-3.5 rounded bg-[#121212] border border-[#353535]">
+                          <span className="text-[11px] text-[#8a8a8a] block">
+                            Visitas Totales
+                          </span>
+                          <span className="text-xl font-bold text-[#ffb5d7]">
+                            {eventTotal}
+                          </span>
+                        </div>
+                        <div className="p-3.5 rounded bg-[#121212] border border-[#353535]">
+                          <span className="text-[11px] text-[#8a8a8a] block">
+                            Visitas Hoy
+                          </span>
+                          <span className="text-xl font-bold text-white">
+                            {evDaily[todayKey] || 0}
+                          </span>
+                        </div>
+                        <div className="p-3.5 rounded bg-[#121212] border border-[#353535]">
+                          <span className="text-[11px] text-[#8a8a8a] block">
+                            Promedio por Día Activo
+                          </span>
+                          <span className="text-xl font-bold text-emerald-400">
+                            {avgPerDay}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Lista / Grid de días del evento */}
+                      {activeDaysCount === 0 ? (
+                        <div className="p-6 rounded bg-[#121212] border border-[#353535] text-center text-xs text-[#8a8a8a]">
+                          Este evento no tiene visitas diarias registradas todavía.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-[#353535]">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-[#121212] text-[#8a8a8a] uppercase border-b border-[#353535]">
+                              <tr>
+                                <th className="py-3 px-4">Fecha</th>
+                                <th className="py-3 px-4 text-center">
+                                  Visitas del Día
+                                </th>
+                                <th className="py-3 px-4 text-center">
+                                  % del Total del Evento
+                                </th>
+                                <th className="py-3 px-4">
+                                  Proporción Visual
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
+                              {Object.entries(evDaily)
+                                .sort(([a], [b]) => b.localeCompare(a))
+                                .map(([dKey, count]) => {
+                                  const isToday = dKey === todayKey;
+                                  const pct =
+                                    eventTotal > 0
+                                      ? Math.round((count / eventTotal) * 100)
+                                      : 0;
+                                  return (
+                                    <tr
+                                      key={dKey}
+                                      className={`hover:bg-[#1c1c1c] ${
+                                        isToday
+                                          ? "bg-[#ffb5d7]/5 font-semibold"
+                                          : ""
+                                      }`}
+                                    >
+                                      <td className="py-3 px-4">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-white font-medium">
+                                            {formatArgentinaDate(dKey, {
+                                              includeWeekday: true,
+                                            })}
+                                          </span>
+                                          {isToday && (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#ffb5d7] text-black text-[9px] font-bold">
+                                              HOY
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="text-[10px] text-[#8a8a8a] font-mono">
+                                          {dKey}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-center">
+                                        <span className="text-base font-bold text-[#ffb5d7]">
+                                          {count}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-center text-[#8a8a8a] font-mono">
+                                        {pct}%
+                                      </td>
+                                      <td className="py-3 px-4">
+                                        <div className="w-full max-w-xs h-2 rounded-full bg-[#2a2a2a] overflow-hidden">
+                                          <div
+                                            className="h-full bg-[#ffb5d7]"
+                                            style={{ width: `${pct}%` }}
+                                          />
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* HISTORIAL GENERAL DE VISITAS A LA WEB POR DÍA */}
               {Object.keys(analytics.dailyVisits || {}).length > 0 && (
                 <div className="space-y-3 pt-4 border-t border-[#353535]">
-                  <h3 className="text-sm font-medium text-white">
-                    Visitas a la Página por Día
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-white">
+                      Visitas Globales a la Web por Día (Últimos 14 días)
+                    </h3>
+                    <span className="text-[11px] text-[#8a8a8a]">
+                      Horario local de Buenos Aires (UTC-3)
+                    </span>
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
                     {Object.entries(analytics.dailyVisits)
                       .sort(([a], [b]) => b.localeCompare(a))
                       .slice(0, 14)
-                      .map(([dateStr, count]) => (
-                        <div
-                          key={dateStr}
-                          className="p-3 rounded-md bg-[#121212] border border-[#353535] text-center"
-                        >
-                          <span className="text-[11px] text-[#8a8a8a] block font-mono">
-                            {dateStr}
-                          </span>
-                          <strong className="text-lg text-[#ffb5d7]">
-                            {count}
-                          </strong>
-                          <span className="text-[10px] text-[#8a8a8a] block">
-                            visitas
-                          </span>
-                        </div>
-                      ))}
+                      .map(([dateStr, count]) => {
+                        const isToday = dateStr === getArgentinaDateKey();
+                        return (
+                          <div
+                            key={dateStr}
+                            className={`p-3 rounded-md border text-center transition-all ${
+                              isToday
+                                ? "bg-[#ffb5d7]/10 border-[#ffb5d7]/50 ring-1 ring-[#ffb5d7]/30"
+                                : "bg-[#121212] border-[#353535]"
+                            }`}
+                          >
+                            <span className="text-[11px] text-[#8a8a8a] block font-mono">
+                              {
+                                formatArgentinaDate(dateStr, {
+                                  includeWeekday: true,
+                                }).split(",")[0]
+                              }
+                            </span>
+                            <span className="text-xs text-white block font-mono font-medium">
+                              {formatArgentinaDate(dateStr)}
+                            </span>
+                            <strong className="text-lg text-[#ffb5d7] block mt-1">
+                              {count}
+                            </strong>
+                            <span className="text-[10px] text-[#8a8a8a] block">
+                              {isToday ? "visitas hoy" : "visitas"}
+                            </span>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}

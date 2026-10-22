@@ -199,6 +199,7 @@ export interface EventAnalyticsItem {
   pageViews: number;
   whatsappClicks: number;
   lastVisitedAt?: string;
+  dailyVisits?: Record<string, number>;
 }
 
 export interface SiteAnalytics {
