@@ -7,6 +7,8 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Database,
   Download,
@@ -17,7 +19,10 @@ import {
   Lock,
   LogOut,
   Mail,
+  Menu,
   MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   QrCode,
   Search,
@@ -182,7 +187,9 @@ export default function AdminDashboardPage() {
   const [dailyVisitsEventFilter, setDailyVisitsEventFilter] =
     useState<string>("TODOS");
 
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("TODOS");
+  const [orderEventFilter, setOrderEventFilter] = useState<string>("TODOS");
   const [orderSearch, setOrderSearch] = useState("");
   const [expandedOrderCode, setExpandedOrderCode] = useState<string | null>(
     null
@@ -984,6 +991,8 @@ export default function AdminDashboardPage() {
   const filteredOrders = visibleOrders.filter((o) => {
     const matchStatus =
       orderStatusFilter === "TODOS" || o.status === orderStatusFilter;
+    const matchEvent =
+      orderEventFilter === "TODOS" || o.eventId === orderEventFilter;
     const q = orderSearch.trim().toLowerCase();
     const matchText =
       !q ||
@@ -993,7 +1002,7 @@ export default function AdminDashboardPage() {
       o.transferReference.toLowerCase().includes(q) ||
       (o.approvedByName || "").toLowerCase().includes(q) ||
       (o.approvedByUsername || "").toLowerCase().includes(q);
-    return matchStatus && matchText;
+    return matchStatus && matchEvent && matchText;
   });
 
   const selectedManualEvent =
@@ -1167,6 +1176,25 @@ export default function AdminDashboardPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              className="px-3.5 py-2.5 rounded-[3px] bg-[#1c1c1c] border border-[#353535] hover:border-[#ffb5d7]/50 text-white font-medium text-xs flex items-center gap-2 cursor-pointer transition-all"
+              title={sidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
+            >
+              {sidebarOpen ? (
+                <>
+                  <PanelLeftClose className="w-4 h-4 text-[#ffb5d7]" />
+                  <span>Ocultar Menú</span>
+                </>
+              ) : (
+                <>
+                  <PanelLeftOpen className="w-4 h-4 text-[#ffb5d7]" />
+                  <span>Mostrar Menú</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={async () => {
                 const ok = await pushToCloudStore();
                 if (ok) {
@@ -1277,105 +1305,222 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* NAVEGACIÓN DE PESTAÑAS SEGÚN PERMISOS DEL ROL Y SUPERADMIN */}
-        <nav className="flex gap-3 overflow-x-auto scrollbar-hide whitespace-nowrap pb-2">
-          {[
-            {
-              id: "reservas" as AdminTab,
-              label: `Reservas & Ventas (${visibleOrders.length})`,
-              visible: permissions.canViewOrders,
-            },
-            {
-              id: "rendicion" as AdminTab,
-              label: `Rendición Dinero (${operatorSummaries.length})`,
-              visible: permissions.canViewRendicion,
-            },
-            {
-              id: "eventos" as AdminTab,
-              label: `Carga de Eventos (${visibleEvents.length})`,
-              visible: permissions.canManageEvents,
-            },
-            {
-              id: "visitas" as AdminTab,
-              label: `Visitas & Estadísticas (${analytics.totalSiteVisits})`,
-              visible: permissions.canViewAnalytics,
-            },
-            {
-              id: "tickets" as AdminTab,
-              label: `Accesos QR (${visibleTickets.length})`,
-              visible: permissions.canViewTickets,
-            },
-            {
-              id: "consultas" as AdminTab,
-              label: `Preguntas & Contactos (${visibleInquiries.length})`,
-              visible: permissions.canManageInquiries,
-            },
-            {
-              id: "usuarios_roles" as AdminTab,
-              label: `Superadmin: Roles & Usuarios (${adminUsers.length})`,
-              visible: isSuper,
-            },
-            {
-              id: "configuracion" as AdminTab,
-              label: "CBU / Alias & Supabase",
-              visible: permissions.canManageSettings,
-            },
-          ]
-            .filter((tab) => tab.visible)
-            .map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`text-sm transition-colors px-4 py-2 rounded-sm block cursor-pointer ${
-                  activeTab === tab.id
-                    ? "bg-white text-black font-medium shadow-sm"
-                    : "bg-[#3F3F3F] text-white/50 hover:text-white"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-        </nav>
-
-        {/* TAB 1: RESERVAS Y VENTAS */}
-        {activeTab === "reservas" && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex flex-wrap gap-2">
-                {["TODOS", "PENDIENTE", "APROBADA", "RECHAZADA"].map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setOrderStatusFilter(st)}
-                    className={`px-3.5 py-1.5 rounded-sm text-xs cursor-pointer ${
-                      orderStatusFilter === st
-                        ? "bg-soft-pink text-[#1c1c1c] font-medium"
-                        : "bg-[#1c1c1c] text-[#8a8a8a] hover:text-white"
-                    }`}
-                  >
-                    {st === "TODOS"
-                      ? "Todas"
-                      : st === "PENDIENTE"
-                      ? "Pendientes de Autorizar"
-                      : st === "APROBADA"
-                      ? "Autorizadas (Con QR)"
-                      : "Rechazadas"}
-                  </button>
-                ))}
+        {/* DISPOSICIÓN PRINCIPAL: MENÚ LATERAL Y CONTENIDO */}
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
+          {/* MENÚ LATERAL (SIDEBAR) */}
+          {sidebarOpen && (
+            <aside className="w-full lg:w-72 shrink-0 rounded-xl bg-[#181818] border border-[#2e2e2e] p-3 space-y-2 lg:sticky lg:top-6 shadow-2xl z-20">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[#2e2e2e] mb-1">
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#8a8a8a] flex items-center gap-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                  Menú de Pestañas
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="text-[#8a8a8a] hover:text-white p-1 rounded hover:bg-[#252525] transition-colors cursor-pointer"
+                  title="Ocultar menú lateral"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="relative p-2 bg-gray-100/20 text-white rounded-md w-full sm:w-80">
-                <Search className="w-4 h-4 text-white absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={orderSearch}
-                  onChange={(e) => setOrderSearch(e.target.value)}
-                  placeholder="Buscar orden, nombre, DNI o comprobante..."
-                  className="w-full pl-8 pr-3 py-1 bg-transparent text-xs text-white outline-none placeholder:text-[#A1A199]"
-                />
+              <nav className="flex flex-col gap-1">
+                {[
+                  {
+                    id: "reservas" as AdminTab,
+                    label: "Reservas & Ventas",
+                    count: visibleOrders.length,
+                    icon: Wallet,
+                    visible: permissions.canViewOrders,
+                  },
+                  {
+                    id: "rendicion" as AdminTab,
+                    label: "Rendición Dinero",
+                    count: operatorSummaries.length,
+                    icon: Users,
+                    visible: permissions.canViewRendicion,
+                  },
+                  {
+                    id: "eventos" as AdminTab,
+                    label: "Carga de Eventos",
+                    count: visibleEvents.length,
+                    icon: Calendar,
+                    visible: permissions.canManageEvents,
+                  },
+                  {
+                    id: "visitas" as AdminTab,
+                    label: "Visitas & Estadísticas",
+                    count: analytics.totalSiteVisits,
+                    icon: BarChart3,
+                    visible: permissions.canViewAnalytics,
+                  },
+                  {
+                    id: "tickets" as AdminTab,
+                    label: "Accesos QR",
+                    count: visibleTickets.length,
+                    icon: QrCode,
+                    visible: permissions.canViewTickets,
+                  },
+                  {
+                    id: "consultas" as AdminTab,
+                    label: "Preguntas & Contactos",
+                    count: visibleInquiries.length,
+                    icon: MessageCircle,
+                    visible: permissions.canManageInquiries,
+                  },
+                  {
+                    id: "usuarios_roles" as AdminTab,
+                    label: "Roles & Usuarios",
+                    count: adminUsers.length,
+                    icon: ShieldCheck,
+                    visible: isSuper,
+                  },
+                  {
+                    id: "configuracion" as AdminTab,
+                    label: "Configuración CBU / DB",
+                    icon: Settings,
+                    visible: permissions.canManageSettings,
+                  },
+                ]
+                  .filter((tab) => tab.visible)
+                  .map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                          isActive
+                            ? "bg-soft-pink text-[#1c1c1c] shadow-md font-semibold"
+                            : "text-white/70 hover:text-white hover:bg-[#222222]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon
+                            className={`w-4 h-4 shrink-0 ${
+                              isActive ? "text-[#1c1c1c]" : "text-[#ffb5d7]"
+                            }`}
+                          />
+                          <span className="truncate">{tab.label}</span>
+                        </div>
+                        {tab.count !== undefined && (
+                          <span
+                            className={`text-[11px] px-2 py-0.5 rounded-full font-mono font-bold shrink-0 ${
+                              isActive
+                                ? "bg-black/20 text-[#1c1c1c]"
+                                : "bg-[#252525] text-[#ffb5d7]"
+                            }`}
+                          >
+                            {tab.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+              </nav>
+            </aside>
+          )}
+
+          {/* CONTENIDO PRINCIPAL */}
+          <main className="flex-1 min-w-0 w-full space-y-6">
+            {!sidebarOpen && (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#181818] border border-[#2e2e2e]">
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="inline-flex items-center gap-2 text-xs font-medium text-white hover:text-[#ffb5d7] cursor-pointer"
+                >
+                  <PanelLeftOpen className="w-4 h-4 text-[#ffb5d7]" />
+                  <span>Mostrar menú lateral de pestañas</span>
+                </button>
+                <span className="text-xs text-[#8a8a8a]">
+                  Pestaña activa:{" "}
+                  <strong className="text-white">
+                    {activeTab === "reservas"
+                      ? "Reservas & Ventas"
+                      : activeTab === "rendicion"
+                      ? "Rendición Dinero"
+                      : activeTab === "eventos"
+                      ? "Carga de Eventos"
+                      : activeTab === "visitas"
+                      ? "Visitas & Estadísticas"
+                      : activeTab === "tickets"
+                      ? "Accesos QR"
+                      : activeTab === "consultas"
+                      ? "Preguntas & Contactos"
+                      : activeTab === "usuarios_roles"
+                      ? "Roles & Usuarios"
+                      : "Configuración CBU / DB"}
+                  </strong>
+                </span>
               </div>
-            </div>
+            )}
+
+            {/* TAB 1: RESERVAS Y VENTAS */}
+            {activeTab === "reservas" && (
+              <div className="space-y-6">
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-[#181818] p-3.5 rounded-lg border border-[#2e2e2e]">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Filtro por Estado */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {["TODOS", "PENDIENTE", "APROBADA", "RECHAZADA"].map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => setOrderStatusFilter(st)}
+                          className={`px-3 py-1.5 rounded-sm text-xs cursor-pointer transition-all ${
+                            orderStatusFilter === st
+                              ? "bg-soft-pink text-[#1c1c1c] font-semibold"
+                              : "bg-[#121212] border border-[#353535] text-[#8a8a8a] hover:text-white"
+                          }`}
+                        >
+                          {st === "TODOS"
+                            ? "Todas"
+                            : st === "PENDIENTE"
+                            ? "Pendientes de Autorizar"
+                            : st === "APROBADA"
+                            ? "Autorizadas (Con QR)"
+                            : "Rechazadas"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Filtro por Evento */}
+                    <div className="flex items-center gap-1.5 pl-3 border-l border-[#353535]">
+                      <span className="text-xs text-[#8a8a8a] whitespace-nowrap">Evento:</span>
+                      <select
+                        value={orderEventFilter}
+                        onChange={(e) => setOrderEventFilter(e.target.value)}
+                        className="bg-[#121212] border border-[#353535] text-white text-xs rounded px-3 py-1.5 focus:border-[#ffb5d7] focus:outline-none cursor-pointer max-w-[220px] truncate"
+                      >
+                        <option value="TODOS">Todos los eventos ({visibleOrders.length})</option>
+                        {visibleEvents.map((ev) => {
+                          const evOrdersCount = visibleOrders.filter((o) => o.eventId === ev.id).length;
+                          return (
+                            <option key={ev.id} value={ev.id}>
+                              {ev.title} ({evOrdersCount})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Buscador */}
+                  <div className="relative p-1.5 bg-[#121212] border border-[#353535] text-white rounded-md w-full xl:w-80">
+                    <Search className="w-4 h-4 text-[#8a8a8a] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="Buscar orden, nombre, DNI o comprobante..."
+                      className="w-full pl-8 pr-3 py-1 bg-transparent text-xs text-white outline-none placeholder:text-[#8a8a8a]"
+                    />
+                  </div>
+                </div>
 
             <div className="space-y-4">
               {filteredOrders.map((order) => {
@@ -1886,40 +2031,40 @@ export default function AdminDashboardPage() {
               )}
 
               <form onSubmit={handleSaveEvent} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Encabezado Superior (Ej: MAS30)
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
+                      Encabezado (Ej: MAS30)
                     </label>
                     <input
                       type="text"
                       value={evTexts.headerLabel}
                       onChange={(e) => setEvText("headerLabel", e.target.value)}
                       placeholder="MAS30 (dejá vacío para ocultar)"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Título del Evento (Ej: HALLOWEEN) *
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
+                      Nombre del Evento (Ej: HALLOWEEN) *
                     </label>
                     <input
                       type="text"
                       required
                       value={evTitle}
                       onChange={(e) => setEvTitle(e.target.value)}
-                      placeholder="PALERMO - CROBAR"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      placeholder="Ej: HALLOWEEN"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Categoría
                     </label>
                     <select
                       value={evCategory}
                       onChange={(e) => setEvCategory(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     >
                       <option value="Fiestas">Fiestas</option>
                       <option value="Festivales">Festivales</option>
@@ -1940,9 +2085,9 @@ export default function AdminDashboardPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Fecha texto (Ej: sáb. 21 nov.) *
                     </label>
                     <input
@@ -1950,11 +2095,11 @@ export default function AdminDashboardPage() {
                       required
                       value={evDateLabel}
                       onChange={(e) => setEvDateLabel(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Fecha corta (Ej: 21.11) *
                     </label>
                     <input
@@ -1962,11 +2107,11 @@ export default function AdminDashboardPage() {
                       required
                       value={evShortDate}
                       onChange={(e) => setEvShortDate(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Horario *
                     </label>
                     <input
@@ -1974,14 +2119,14 @@ export default function AdminDashboardPage() {
                       required
                       value={evTime}
                       onChange={(e) => setEvTime(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Nombre del Predio / Club *
                     </label>
                     <input
@@ -1990,11 +2135,11 @@ export default function AdminDashboardPage() {
                       value={evVenueName}
                       onChange={(e) => setEvVenueName(e.target.value)}
                       placeholder="CROBAR PALERMO"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Dirección / Texto de Ubicación *
                     </label>
                     <input
@@ -2003,11 +2148,11 @@ export default function AdminDashboardPage() {
                       value={evVenueAddress}
                       onChange={(e) => setEvVenueAddress(e.target.value)}
                       placeholder="Av. Marcelino Freyre s/n, Palermo"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                  <div className="flex flex-col justify-end">
+                    <label className="text-xs text-[#8a8a8a] mb-1.5 h-5 flex items-center truncate">
                       Ciudad / Zona
                     </label>
                     <input
@@ -2015,7 +2160,7 @@ export default function AdminDashboardPage() {
                       value={evVenueCity}
                       onChange={(e) => setEvVenueCity(e.target.value)}
                       placeholder="Buenos Aires"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      className="w-full h-10 px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white outline-none focus:border-[#ffb5d7]"
                     />
                   </div>
                 </div>
@@ -4995,6 +5140,8 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         )}
+          </main>
+        </div>
       </div>
 
       {/* MODAL PARA EMITIR CORTESÍA / QR MANUAL */}
