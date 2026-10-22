@@ -1,6 +1,6 @@
-import crypto from "crypto";
+﻿import crypto from "crypto";
 import {
-  BUCKET_NAME,
+  STATE_BUCKET,
   STATE_FILE,
   ADMIN_API_SECRET,
   getAdminSupabase,
@@ -34,18 +34,6 @@ export function getSiteUrl(req?: Request): string {
   return "https://mastreinta.vercel.app";
 }
 
-/** Misma validación de operador que usa /api/cloud-store. */
-export function isAdminRequest(req: Request): boolean {
-  const auth = req.headers.get("authorization");
-  const bearer = auth && auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  const provided = (req.headers.get("x-admin-token") || bearer || "").trim();
-  return (
-    !!provided &&
-    (provided === ADMIN_API_SECRET ||
-      provided === "mas30_super_secret_auth_token_2026")
-  );
-}
-
 export function isMpConfigured(): boolean {
   return Boolean(MP_CLIENT_ID && MP_CLIENT_SECRET);
 }
@@ -54,7 +42,7 @@ export function isMpConfigured(): boolean {
 /* Almacenamiento PRIVADO de cuentas (tokens nunca salen del servidor)  */
 /* ------------------------------------------------------------------ */
 
-const PRIVATE_BUCKET = "mas30-private";
+const PRIVATE_BUCKET = STATE_BUCKET;
 const ACCOUNTS_FILE = "payment-accounts-v1.json";
 
 export interface PaymentAccountSecret extends PaymentAccountPublic {
@@ -372,7 +360,7 @@ export function mutateState<T>(
     const result = await fn(state);
     state.updatedAt = new Date().toISOString();
     const { error } = await getAdminSupabase()
-      .storage.from(BUCKET_NAME)
+      .storage.from(STATE_BUCKET)
       .upload(STATE_FILE, Buffer.from(JSON.stringify(state), "utf-8"), {
         contentType: "application/json",
         upsert: true,
@@ -632,3 +620,5 @@ export async function sendTicketsEmail(
     console.error("[MP] Error enviando email de tickets:", err);
   }
 }
+
+

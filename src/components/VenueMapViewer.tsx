@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { EventItem, VenueSpot } from "@/lib/types";
+import { EventItem, VenuePoint, VenuePolygon, VenueSpot } from "@/lib/types";
 import { formatARS } from "@/lib/store";
 import {
   Users,
@@ -34,6 +34,7 @@ export default function VenueMapViewer({
 
   const sectors = mapConfig.sectors || [];
   const spots = mapConfig.spots || [];
+  const polygons = mapConfig.polygons || [];
 
   // Active clicked spot in the viewer
   const [activeSpot, setActiveSpot] = useState<VenueSpot | null>(
@@ -47,6 +48,24 @@ export default function VenueMapViewer({
   const handleConfirmReservation = (spot: VenueSpot) => {
     if (spot.status !== "DISPONIBLE") return;
     onSelectSpot(spot);
+  };
+
+  // Convertir puntos % a coordenadas SVG strings (0-100 viewBox)
+  const getSvgPointsString = (points: VenuePoint[]): string => {
+    return points.map((p) => `${p.x},${p.y}`).join(" ");
+  };
+
+  // Calcular centroide para ubicar texto del polígono
+  const getPolygonCenter = (points: VenuePoint[]): VenuePoint => {
+    if (!points || points.length === 0) return { x: 50, y: 50 };
+    const total = points.reduce(
+      (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+      { x: 0, y: 0 }
+    );
+    return {
+      x: Math.round(total.x / points.length),
+      y: Math.round(total.y / points.length),
+    };
   };
 
   return (
@@ -97,17 +116,51 @@ export default function VenueMapViewer({
           backgroundSize: "100% 100%, 100% 100%, 100% 100%, 40px 40px, 40px 40px",
         }}
       >
-        {/* CABINA DJ / ESCENARIO */}
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-44 py-1 px-3 rounded-full bg-[#181818]/90 border border-[#AF2C75]/60 text-center text-[10px] uppercase font-bold tracking-widest text-[#ffb5d7] shadow-lg pointer-events-none">
-          Cabina DJ / Escenario MAS30
-        </div>
-
-        {/* PISTA DANCEFLOOR */}
+        {/* PISTA DANCEFLOOR CIRCULAR */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-56 sm:w-72 h-56 sm:h-72 rounded-full border border-dashed border-white/10 pointer-events-none flex items-center justify-center">
           <span className="text-[10px] uppercase tracking-widest font-bold text-white/10">
             Pista Central
           </span>
         </div>
+
+        {/* CAPA SVG PARA ELEMENTOS POLIGONALES (ESCENARIO, PISTAS, BARRAS) */}
+        {polygons.length > 0 && (
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+          >
+            {polygons.map((poly) => {
+              const strokeColor = poly.color || "#AF2C75";
+              const fillColor = poly.fillColor || `${strokeColor}33`;
+              const center = getPolygonCenter(poly.points);
+
+              return (
+                <g key={poly.id}>
+                  <polygon
+                    points={getSvgPointsString(poly.points)}
+                    fill={fillColor}
+                    stroke={strokeColor}
+                    strokeWidth={0.5}
+                  />
+                  <text
+                    x={center.x}
+                    y={center.y}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="#ffffff"
+                    fontSize="2.2"
+                    fontWeight="bold"
+                    letterSpacing="0.08em"
+                    className="select-none drop-shadow pointer-events-none"
+                  >
+                    {poly.name}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        )}
 
         {/* ETIQUETAS DE SECTORES */}
         {sectors.map((sec) => (
@@ -117,6 +170,7 @@ export default function VenueMapViewer({
             style={{
               left: `${sec.x}%`,
               top: `${sec.y}%`,
+              transform: `translate(-50%, -50%) rotate(${sec.rotation || 0}deg)`,
               backgroundColor: `${sec.color || "#ffb5d7"}22`,
               border: `1.5px dashed ${sec.color || "#ffb5d7"}`,
               color: sec.color || "#ffb5d7",
@@ -135,7 +189,7 @@ export default function VenueMapViewer({
           const isSold = spot.status === "VENDIDO";
           const isBlocked = spot.status === "BLOQUEADO";
 
-          let statusClass = "bg-emerald-950/90 border-emerald-500 text-emerald-200 hover:scale-110 shadow-lg shadow-emerald-950/50 cursor-pointer";
+          let statusClass = "bg-emerald-950/90 border-emerald-500 text-emerald-200 hover:scale-105 shadow-lg shadow-emerald-950/50 cursor-pointer";
           let badgeClass = "bg-emerald-500 text-black";
           if (isReserved) {
             statusClass = "bg-amber-950/80 border-amber-500 text-amber-200 cursor-not-allowed opacity-80";
@@ -150,26 +204,32 @@ export default function VenueMapViewer({
 
           const isRect = spot.shape === "rect" || spot.type === "LIVING" || spot.type === "SECTOR_VIP";
 
+          // Tamaños proporcionales en el visualizador (escalados suavemente para móviles/desktop)
+          const widthPx = spot.width ? Math.round(spot.width * 0.9) : (isRect ? 112 : 80);
+          const heightPx = spot.height ? Math.round(spot.height * 0.9) : (isRect ? 60 : 80);
+          const rotationDeg = spot.rotation || 0;
+
           return (
             <button
               key={spot.id}
               type="button"
               onClick={() => handleSpotClick(spot)}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center transition-all z-20 ${
-                isRect
-                  ? "w-24 sm:w-28 py-1.5 px-1 rounded-xl border-2"
-                  : "w-16 sm:w-20 h-16 sm:h-20 rounded-full border-2"
+                isRect ? "rounded-xl border-2 p-1" : "rounded-full border-2 p-1"
               } ${statusClass} ${
                 isSelected || isChosen
-                  ? "ring-4 ring-[#ffb5d7] scale-110 shadow-2xl z-30"
+                  ? "ring-4 ring-[#ffb5d7] scale-105 shadow-2xl z-30"
                   : ""
               }`}
               style={{
                 left: `${spot.x}%`,
                 top: `${spot.y}%`,
+                width: `${widthPx}px`,
+                height: `${heightPx}px`,
+                transform: `translate(-50%, -50%) rotate(${rotationDeg}deg)`,
               }}
             >
-              <span className="text-[10px] sm:text-[11px] font-bold truncate max-w-[90%] leading-tight text-white drop-shadow">
+              <span className="text-[10px] sm:text-[11px] font-bold truncate max-w-[92%] leading-tight text-white drop-shadow">
                 {spot.name}
               </span>
 
@@ -220,113 +280,64 @@ export default function VenueMapViewer({
                   }`}
                 >
                   {activeSpot.status === "DISPONIBLE"
-                    ? "Disponible"
-                    : "Ya reservada"}
+                    ? "✓ DISPONIBLE"
+                    : activeSpot.status === "RESERVADO"
+                    ? "⏳ RESERVADA"
+                    : "✕ NO DISPONIBLE"}
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 text-xs text-[#b0b0b0]">
-                <span className="flex items-center gap-1.5 text-white font-medium">
+              <div className="flex items-center gap-4 text-xs text-[#8a8a8a] flex-wrap pt-1">
+                <span className="flex items-center gap-1 font-mono text-white">
                   <Users className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                  Incluye <strong>{activeSpot.capacity} accesos QR individuales</strong>
+                  <strong>{activeSpot.capacity} accesos / QRs incluidos</strong>
                 </span>
-                <span className="text-soft-pink font-bold font-mono text-sm">
-                  {formatARS(activeSpot.price)}
+                <span className="font-mono text-sm font-bold text-[#ffb5d7]">
+                  Total: {formatARS(activeSpot.price)}
                 </span>
               </div>
 
               {activeSpot.perks && (
-                <p className="text-xs text-[#d1d5db] flex items-center gap-1.5 pt-1">
-                  <Gift className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>
-                    <strong>Beneficios incluidos:</strong> {activeSpot.perks}
-                  </span>
+                <p className="text-xs text-white/80 flex items-start gap-1.5 pt-1">
+                  <Gift className="w-3.5 h-3.5 text-[#ffb5d7] shrink-0 mt-0.5" />
+                  <span>{activeSpot.perks}</span>
                 </p>
               )}
             </div>
 
-            <div className="w-full md:w-auto shrink-0">
+            <div className="w-full md:w-auto flex items-center justify-end">
               {activeSpot.status === "DISPONIBLE" ? (
                 <button
                   type="button"
                   onClick={() => handleConfirmReservation(activeSpot)}
-                  className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-soft-pink text-[#1c1c1c] hover:bg-white shadow-lg hover:shadow-[#AF2C75]/40 transition-all cursor-pointer"
+                  className={`w-full md:w-auto px-5 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    selectedSpotId === activeSpot.id
+                      ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/50"
+                      : "bg-soft-pink text-[#1c1c1c] hover:bg-white shadow-lg"
+                  }`}
                 >
-                  <span>Reservar {activeSpot.name} ({formatARS(activeSpot.price)})</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {selectedSpotId === activeSpot.id ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Mesa Seleccionada para Reserva</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Elegir Esta Mesa ({formatARS(activeSpot.price)})</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               ) : (
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-800 text-zinc-400 cursor-not-allowed">
+                <div className="w-full md:w-auto text-center px-4 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-xs font-medium flex items-center justify-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Este lugar ya no está disponible</span>
+                  <span>Este lugar ya no se encuentra disponible</span>
                 </div>
               )}
             </div>
           </div>
         </div>
       )}
-
-      {/* LISTA RÁPIDA DE MESAS Y SECTORES (SELECTOR ALTERNATIVO) */}
-      <div className="space-y-2 pt-2">
-        <span className="text-xs font-bold uppercase tracking-wider text-[#8a8a8a] block">
-          Mesas y Sectores Disponibles para Reservar
-        </span>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-          {spots
-            .filter((s) => s.status === "DISPONIBLE")
-            .map((spot) => (
-              <button
-                key={spot.id}
-                type="button"
-                onClick={() => {
-                  setActiveSpot(spot);
-                  handleConfirmReservation(spot);
-                }}
-                className={`text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                  selectedSpotId === spot.id || activeSpot?.id === spot.id
-                    ? "bg-[#221820] border-[#AF2C75] shadow-lg shadow-[#AF2C75]/20"
-                    : "bg-[#181818] border-[#2e2e2e] hover:border-[#ffb5d7]/60"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      {spot.shape === "rect" ? (
-                        <Square className="w-3 h-3 text-[#ffb5d7]" />
-                      ) : (
-                        <Circle className="w-3 h-3 text-blue-400" />
-                      )}
-                      {spot.name}
-                    </span>
-                    <span className="text-[11px] font-mono font-bold text-[#ffb5d7]">
-                      {formatARS(spot.price)}
-                    </span>
-                  </div>
-
-                  <span className="text-[10px] text-[#8a8a8a] block mt-0.5">
-                    {spot.sectorName || "Pista"} · <strong>{spot.capacity} accesos QR</strong>
-                  </span>
-
-                  {spot.perks && (
-                    <p className="text-[10px] text-[#b0b0b0] line-clamp-1 mt-1">
-                      {spot.perks}
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-2 pt-2 border-t border-[#262626] flex items-center justify-between text-[11px]">
-                  <span className="text-emerald-400 font-semibold">
-                    ✓ Disponible
-                  </span>
-                  <span className="text-soft-pink font-bold flex items-center gap-1">
-                    Reservar →
-                  </span>
-                </div>
-              </button>
-            ))}
-        </div>
-      </div>
     </div>
   );
 }

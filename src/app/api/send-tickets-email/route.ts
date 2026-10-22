@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import QRCode from "qrcode";
 import fs from "fs/promises";
 import path from "path";
-import { readCloudState, ADMIN_API_SECRET } from "@/lib/cloudState.server";
+import { readCloudState } from "@/lib/cloudState.server";
+import { getAdminFromRequest } from "@/lib/adminAuth.server";
 import { BankSettings, EventItem } from "@/lib/types";
 
 interface TicketEmailInput {
@@ -16,30 +17,30 @@ interface TicketEmailInput {
   tierName: string;
 }
 
+/** Escapa texto para insertarlo de forma segura en HTML de emails. */
+function esc(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function POST(req: Request) {
   try {
-    // Verificación de autenticación de operador
-    const authHeader =
-      req.headers.get("x-admin-token") || req.headers.get("authorization");
-    const bearer =
-      authHeader && authHeader.startsWith("Bearer ")
-        ? authHeader.slice(7)
-        : authHeader;
-    const isAuthorized =
-      bearer === ADMIN_API_SECRET ||
-      bearer === "mas30_super_secret_auth_token_2026";
-
-    if (!isAuthorized) {
+    // Verificación de autenticación de operador (sesión HttpOnly o llamada interna del servidor)
+    const admin = await getAdminFromRequest(req);
+    if (!admin) {
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Acceso no autorizado: Se requiere token de administrador para enviar correos de entradas.",
+            "Acceso no autorizado: Se requiere sesión de administrador para enviar correos de entradas.",
         },
         { status: 401 }
       );
     }
-
     const body = await req.json();
     const {
       toEmail,
@@ -152,11 +153,11 @@ export async function POST(req: Request) {
     if (rawFlyerUrl) {
       try {
         if (rawFlyerUrl.startsWith("/")) {
-          const localPath = path.join(
-            process.cwd(),
-            "public",
-            rawFlyerUrl.replace(/^\//, "")
-          );
+          const publicDir = path.join(process.cwd(), "public");
+          const localPath = path.resolve(publicDir, rawFlyerUrl.replace(/^\/+/, ""));
+          if (!localPath.startsWith(publicDir + path.sep)) {
+            throw new Error("Ruta de flyer no permitida");
+          }
           flyerBuffer = await fs.readFile(localPath);
           if (rawFlyerUrl.toLowerCase().endsWith(".jpg") || rawFlyerUrl.toLowerCase().endsWith(".jpeg")) {
             flyerMimeType = "image/jpeg";
@@ -231,7 +232,7 @@ export async function POST(req: Request) {
     const flyerHeaderHtml = flyerImgSrc
       ? `
         <div style="margin-bottom:24px;border-radius:12px;overflow:hidden;border:1px solid #353535;background:#1c1c1c;text-align:center;">
-          <img src="${flyerImgSrc}" alt="Flyer ${eventTitle}" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;" />
+          <img src="${esc(flyerImgSrc)}" alt="Flyer ${esc(eventTitle)}" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;" />
         </div>
       `
       : "";
@@ -246,19 +247,19 @@ export async function POST(req: Request) {
               <strong style="color:#ffffff;font-size:13px;letter-spacing:1px;">MAS30 · TICKET QR (${t.ticketNumber || idx + 1}/${t.totalInOrder || tickets.length})</strong>
             </div>
             <div style="padding:20px;text-align:center;">
-              <p style="color:#ffb5d7;font-size:12px;text-transform:uppercase;margin:0 0 4px;">${t.tierName || "Entrada"}</p>
-              <h3 style="color:#ffffff;font-size:22px;margin:0 0 6px;">${eventTitle}</h3>
-              <p style="color:#b0b0b0;font-size:13px;margin:0 0 16px;">${eventDateLabel || ""} · ${eventTime || ""} · ${eventVenue || ""}</p>
+              <p style="color:#ffb5d7;font-size:12px;text-transform:uppercase;margin:0 0 4px;">${esc(t.tierName || "Entrada")}</p>
+              <h3 style="color:#ffffff;font-size:22px;margin:0 0 6px;">${esc(eventTitle)}</h3>
+              <p style="color:#b0b0b0;font-size:13px;margin:0 0 16px;">${esc(eventDateLabel)} · ${esc(eventTime)} · ${esc(eventVenue)}</p>
               <div style="background:#121212;padding:10px 14px;border-radius:6px;margin-bottom:16px;text-align:left;">
                 <div style="font-size:11px;color:#8a8a8a;text-transform:uppercase;">ASISTENTE / ACCESO</div>
-                <div style="font-size:15px;color:#ffffff;font-weight:bold;">${t.holderName}${t.holderDni ? ` (DNI ${t.holderDni})` : ""}</div>
+                <div style="font-size:15px;color:#ffffff;font-weight:bold;">${esc(t.holderName)}${t.holderDni ? ` (DNI ${esc(t.holderDni)})` : ""}</div>
               </div>
               <div style="background:#ffffff;display:inline-block;padding:14px;border-radius:8px;">
-                <img src="${qrImgSrc}" alt="QR ${t.shortCode}" width="220" height="220" style="display:block;margin:0 auto;" />
+                <img src="${esc(qrImgSrc)}" alt="QR ${esc(t.shortCode)}" width="220" height="220" style="display:block;margin:0 auto;" />
               </div>
               <div style="margin:16px auto 0;background:#121212;border:1px solid #ffb5d7;border-radius:6px;padding:10px 18px;display:inline-block;">
                 <div style="font-size:11px;color:#ffb5d7;text-transform:uppercase;letter-spacing:1px;">Código Alfanumérico (4 dígitos)</div>
-                <div style="font-family:monospace;font-size:26px;font-weight:bold;color:#ffffff;letter-spacing:5px;margin-top:2px;">${t.shortCode}</div>
+                <div style="font-family:monospace;font-size:26px;font-weight:bold;color:#ffffff;letter-spacing:5px;margin-top:2px;">${esc(t.shortCode)}</div>
               </div>
             </div>
           </div>
@@ -270,16 +271,16 @@ export async function POST(req: Request) {
       <div style="background:#121212;padding:32px 16px;color:#ffffff;font-family:Poppins,Arial,sans-serif;">
         <div style="max-width:560px;margin:0 auto;">
           ${flyerHeaderHtml}
-          <h1 style="color:#ffb5d7;font-size:26px;margin:0 0 10px;">¡Tus entradas QR para ${eventTitle}!</h1>
+          <h1 style="color:#ffb5d7;font-size:26px;margin:0 0 10px;">¡Tus entradas QR para ${esc(eventTitle)}!</h1>
           <p style="color:#cccccc;font-size:14px;line-height:1.6;margin:0 0 20px;">
-            Hola <strong>${buyerName}</strong>, tu orden <strong>${orderCode}</strong> fue autorizada por <strong>MAS30</strong>.
+            Hola <strong>${esc(buyerName)}</strong>, tu orden <strong>${esc(orderCode)}</strong> fue autorizada por <strong>MAS30</strong>.
             En la puerta del evento podés presentar cualquiera de los dos: el <strong>código QR</strong> o tu <strong>código alfanumérico de 4 dígitos</strong>.
           </p>
           <div style="margin:24px 0;">
             ${ticketsHtml}
           </div>
           <div style="text-align:center;margin-top:24px;">
-            <a href="${ticketUrl}" style="background:#ffb5d7;color:#121212;text-decoration:none;padding:14px 28px;border-radius:4px;font-weight:bold;font-size:14px;display:inline-block;">
+            <a href="${esc(ticketUrl)}" style="background:#ffb5d7;color:#121212;text-decoration:none;padding:14px 28px;border-radius:4px;font-weight:bold;font-size:14px;display:inline-block;">
               Ver y Descargar Mis Entradas Online
             </a>
           </div>
@@ -402,3 +403,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

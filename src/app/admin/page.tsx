@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
@@ -48,7 +48,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  ADMIN_CLIENT_TOKEN,
   approveOrderAndGenerateQRs,
   canUserAccessEvent,
   createDefaultVenueMap,
@@ -398,7 +397,6 @@ export default function AdminDashboardPage() {
   const loadMpAccounts = async () => {
     try {
       const r = await fetch("/api/mp/accounts", {
-        headers: { "x-admin-token": ADMIN_CLIENT_TOKEN },
         cache: "no-store",
       });
       if (!r.ok) return;
@@ -424,7 +422,6 @@ export default function AdminDashboardPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-token": ADMIN_CLIENT_TOKEN,
       },
       body: JSON.stringify({ label: mpNewLabel }),
     });
@@ -437,7 +434,6 @@ export default function AdminDashboardPage() {
     if (!window.confirm("¿Desconectar esta cuenta? Los eventos que la usen dejarán de cobrar online.")) return;
     await fetch(`/api/mp/accounts?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
-      headers: { "x-admin-token": ADMIN_CLIENT_TOKEN },
     });
     if (evPaymentAccountId === id) setEvPaymentAccountId("");
     loadMpAccounts();
@@ -530,7 +526,6 @@ export default function AdminDashboardPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-token": ADMIN_CLIENT_TOKEN,
         },
         body: JSON.stringify({
           toEmail: order.buyerEmail,
@@ -630,16 +625,18 @@ export default function AdminDashboardPage() {
     setExpandedOrderCode(order.orderCode);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const logged = loginAdminUser(loginUsername, loginPassword);
+    const { user: logged, error } = await loginAdminUser(
+      loginUsername,
+      loginPassword
+    );
     if (!logged) {
-      setLoginError(
-        "Usuario o contraseña incorrectos. Revisá las credenciales."
-      );
+      setLoginError(error || "Usuario o contraseña incorrectos. Revisá las credenciales.");
       return;
     }
     setLoginError("");
+    setLoginPassword("");
     setCurrentUser(logged);
     syncAll();
   };
@@ -677,7 +674,7 @@ export default function AdminDashboardPage() {
     if (
       !newUserFullName.trim() ||
       !newUsername.trim() ||
-      !newUserPassword.trim()
+      (!editingUserId && newUserPassword.trim().length < 8)
     )
       return;
     const cleanUsername = newUsername
@@ -5614,7 +5611,7 @@ export default function AdminDashboardPage() {
                             </div>
                             <p className="text-xs text-[#8a8a8a] font-mono">
                               Usuario: <strong className="text-white">@{u.username}</strong> · Clave:{" "}
-                              <strong className="text-[#ffb5d7]">{u.password}</strong>
+                              <strong className="text-[#ffb5d7]">••••••••</strong>
                             </p>
                           </div>
 
@@ -5625,7 +5622,7 @@ export default function AdminDashboardPage() {
                                 setEditingUserId(u.id);
                                 setNewUserFullName(u.fullName);
                                 setNewUsername(u.username);
-                                setNewUserPassword(u.password);
+                                setNewUserPassword("");
                                 setNewUserRole(u.role);
                                 setUserAssignedEventIds(u.assignedEventIds || []);
                                 window.scrollTo({ top: 400, behavior: "smooth" });
@@ -6045,7 +6042,6 @@ export default function AdminDashboardPage() {
                           method: "POST",
                           headers: {
                             "Content-Type": "application/json",
-                            "x-admin-token": ADMIN_CLIENT_TOKEN,
                           },
                           body: JSON.stringify({
                             toEmail: testRecipient,
@@ -6366,3 +6362,6 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+
+
+

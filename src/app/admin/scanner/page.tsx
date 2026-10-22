@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -288,11 +288,14 @@ export default function DoorQRScannerPage() {
             </div>
           )}
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              const logged = loginAdminUser(loginUsername, loginPassword);
+              const { user: logged, error } = await loginAdminUser(
+                loginUsername,
+                loginPassword
+              );
               if (!logged) {
-                setLoginError("Usuario o contraseña incorrectos.");
+                setLoginError(error || "Usuario o contraseña incorrectos.");
                 return;
               }
               setLoginError("");
@@ -712,3 +715,4 @@ export default function DoorQRScannerPage() {
     </div>
   );
 }
+

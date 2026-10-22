@@ -12,6 +12,21 @@ export interface TicketTier {
 export type VenueSpotType = "MESA" | "LIVING" | "SECTOR_VIP" | "BOX" | "BARRA";
 export type VenueSpotStatus = "DISPONIBLE" | "RESERVADO" | "VENDIDO" | "BLOQUEADO";
 
+export interface VenuePoint {
+  x: number; // Posición % horizontal (0 a 100)
+  y: number; // Posición % vertical (0 a 100)
+}
+
+export interface VenuePolygon {
+  id: string;
+  name: string; // Ej: "ESCENARIO PRINCIPAL", "PISTA DE BAILE", "CABINA DJ"
+  type?: "ESCENARIO" | "PISTA" | "BARRA" | "SECTOR" | "CUSTOM";
+  points: VenuePoint[]; // Vértices en % (0 a 100)
+  color?: string; // Color de borde/acento
+  fillColor?: string; // Color de relleno
+  closed?: boolean; // Si está cerrado
+}
+
 export interface VenueSpot {
   id: string;
   name: string; // Ej: "Mesa 5", "Living VIP 1", "Sector VIP"
@@ -22,8 +37,9 @@ export interface VenueSpot {
   perks?: string; // Beneficios adicionales (ej: "10 espumantes + atención personalizada")
   x: number; // Posición % horizontal (0 a 100)
   y: number; // Posición % vertical (0 a 100)
-  width?: number; // Ancho opcional
-  height?: number; // Alto opcional
+  width?: number; // Ancho personalizado en px
+  height?: number; // Alto personalizado en px
+  rotation?: number; // Rotación en grados (0 a 360)
   shape?: "circle" | "rect";
   status: VenueSpotStatus;
   reservedByOrderCode?: string;
@@ -35,6 +51,9 @@ export interface VenueSectorLabel {
   name: string; // Ej: "ESCENARIO", "PISTA CENTRAL", "SECTOR VIP", "BARRA"
   x: number; // % (0 a 100)
   y: number; // % (0 a 100)
+  width?: number; // Ancho opcional
+  height?: number; // Alto opcional
+  rotation?: number; // Rotación en grados (0 a 360)
   color?: string; // Color opcional (hex o nombre)
 }
 
@@ -43,6 +62,7 @@ export interface VenueMapConfig {
   backgroundImageUrl?: string;
   sectors: VenueSectorLabel[];
   spots: VenueSpot[];
+  polygons?: VenuePolygon[]; // Elementos construidos con puntos (escenarios, pistas, barras, etc.)
 }
 
 export interface EventItem {

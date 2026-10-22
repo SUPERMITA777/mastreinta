@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 import {
+  getAdminFromRequest,
+  isSuperIdentity,
+} from "@/lib/adminAuth.server";
+import {
   buildAuthorizationUrl,
   deleteAccount,
-  isAdminRequest,
   isMpConfigured,
   listPublicAccounts,
 } from "@/lib/mercadopago.server";
 
 export const dynamic = "force-dynamic";
 
-const unauthorized = () =>
-  NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+const forbidden = () =>
+  NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
 
-/** Lista de cuentas conectadas (sin tokens). Solo operadores. */
+/** Lista de cuentas conectadas (sin tokens). Solo SUPERADMIN: define a dónde va el dinero. */
 export async function GET(req: Request) {
-  if (!isAdminRequest(req)) return unauthorized();
+  if (!isSuperIdentity(await getAdminFromRequest(req))) return forbidden();
   return NextResponse.json({
     ok: true,
     configured: isMpConfigured(),
@@ -24,7 +27,7 @@ export async function GET(req: Request) {
 
 /** Inicia la conexión de una cuenta: devuelve la URL de autorización de Mercado Pago. */
 export async function POST(req: Request) {
-  if (!isAdminRequest(req)) return unauthorized();
+  if (!isSuperIdentity(await getAdminFromRequest(req))) return forbidden();
   if (!isMpConfigured()) {
     return NextResponse.json(
       {
@@ -43,7 +46,7 @@ export async function POST(req: Request) {
 
 /** Desconecta una cuenta. */
 export async function DELETE(req: Request) {
-  if (!isAdminRequest(req)) return unauthorized();
+  if (!isSuperIdentity(await getAdminFromRequest(req))) return forbidden();
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ ok: false, error: "Falta id" }, { status: 400 });
   await deleteAccount(id);

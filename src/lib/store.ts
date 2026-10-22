@@ -265,11 +265,27 @@ export function createDefaultVenueMap(): VenueMapConfig {
   return {
     enabled: true,
     sectors: [
-      { id: "sec-dj", name: "ESCENARIO / CABINA DJ", x: 50, y: 12, color: "#AF2C75" },
+      { id: "sec-dj", name: "CABINA DJ / ESCENARIO", x: 50, y: 12, color: "#AF2C75" },
       { id: "sec-pista", name: "PISTA CENTRAL", x: 50, y: 48, color: "#3b82f6" },
       { id: "sec-vip", name: "SECTOR VIP EXCLUSIVO", x: 82, y: 48, color: "#eab308" },
       { id: "sec-livings", name: "LIVINGS & LOUNGE", x: 18, y: 48, color: "#10b981" },
       { id: "sec-barra", name: "BARRA PRINCIPAL", x: 50, y: 88, color: "#8b5cf6" },
+    ],
+    polygons: [
+      {
+        id: "poly-escenario-default",
+        name: "ESCENARIO PRINCIPAL / CABINA DJ",
+        type: "ESCENARIO",
+        points: [
+          { x: 36, y: 5 },
+          { x: 64, y: 5 },
+          { x: 70, y: 15 },
+          { x: 30, y: 15 },
+        ],
+        color: "#AF2C75",
+        fillColor: "rgba(175, 44, 117, 0.25)",
+        closed: true,
+      },
     ],
     spots: [
       {
@@ -638,8 +654,6 @@ let cloudSyncInitialized = false;
 let isApplyingCloudState = false;
 let isSavingToCloud = false;
 
-export const ADMIN_CLIENT_TOKEN = "mas30_super_secret_auth_token_2026";
-
 export async function pushToCloudStore(
   partial?: Record<string, unknown>
 ): Promise<boolean> {
@@ -655,19 +669,18 @@ export async function pushToCloudStore(
       adminUsers: getAdminUsers(),
       adminRoles: getAdminRoles(),
     };
-    const session = getCurrentAdminSession();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    // Solo enviamos el token si hay un operador autenticado
-    if (session) {
-      headers["x-admin-token"] = ADMIN_CLIENT_TOKEN;
-    }
+    // La autorización la da la cookie de sesión HttpOnly (se envía sola en el mismo origen)
     const res = await fetch("/api/cloud-store", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify(payload),
     });
+    if (res.status === 401 && getCurrentAdminSession()) {
+      // La sesión del servidor venció: cerrar también la sesión visual
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+      notifyStoreUpdate();
+    }
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.events)) {
@@ -715,16 +728,18 @@ export async function syncFromCloudStore(): Promise<void> {
   if (typeof window === "undefined" || isSavingToCloud) return;
   try {
     const session = getCurrentAdminSession();
-    const headers: Record<string, string> = {};
-    if (session) {
-      headers["x-admin-token"] = ADMIN_CLIENT_TOKEN;
-    }
     const res = await fetch(`/api/cloud-store?t=${Date.now()}`, {
       cache: "no-store",
-      headers,
+      credentials: "same-origin",
     });
     if (!res.ok || isSavingToCloud) return;
     const data = await res.json();
+
+    // Hay sesión visual pero el servidor ya no la reconoce (venció o fue revocada)
+    if (session && !data.isAdmin) {
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+      notifyStoreUpdate();
+    }
 
     if (!data.exists || !data.state) {
       if (session) {
@@ -2222,33 +2237,42 @@ export function getCurrentAdminSession(): AdminUser | null {
   }
 }
 
-export function loginAdminUser(
+/** Inicia sesión contra el servidor (cookie HttpOnly). Devuelve el usuario o un mensaje de error. */
+export async function loginAdminUser(
   usernameInput: string,
   passwordInput: string
-): AdminUser | null {
-  const cleanUser = usernameInput.trim().toLowerCase();
-  const cleanPass = passwordInput.trim();
-  const users = getAdminUsers();
-  const found = users.find(
-    (u) =>
-      u.active &&
-      u.username.trim().toLowerCase() === cleanUser &&
-      u.password === cleanPass
-  );
-  if (!found) return null;
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, JSON.stringify(found));
-    notifyStoreUpdate();
+): Promise<{ user: AdminUser | null; error?: string }> {
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        username: usernameInput.trim(),
+        password: passwordInput,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.user) {
+      return { user: null, error: data.error || "Usuario o contraseña incorrectos" };
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, JSON.stringify(data.user));
+      notifyStoreUpdate();
+      void syncFromCloudStore();
+    }
+    return { user: data.user as AdminUser };
+  } catch {
+    return { user: null, error: "No se pudo conectar con el servidor" };
   }
-  return found;
 }
 
 export function logoutAdminUser(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+  void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
   notifyStoreUpdate();
 }
-
 export function formatARS(amount: number): string {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -2450,4 +2474,6 @@ export async function resetAnalytics(): Promise<void> {
     // ignore
   }
 }
+
+
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { EventItem, OrderAttendeeInput, OrderItem } from "@/lib/types";
+import { clientIp, rateLimited } from "@/lib/adminAuth.server";
 import {
   RESERVATION_MINUTES,
   createPreference,
@@ -37,6 +38,10 @@ class CheckoutError extends Error {
  */
 export async function POST(req: Request) {
   try {
+    // Anti abuso: cada orden bloquea cupo/mesa 30 min. Máx 6 intentos / 10 min por IP.
+    if (rateLimited(`checkout:${clientIp(req)}`, 6, 10 * 60 * 1000)) {
+      throw new CheckoutError("Demasiados intentos. Probá de nuevo en unos minutos.", 429);
+    }
     const body = (await req.json()) as CheckoutBody;
     const buyerName = String(body.buyerName || "").trim();
     const buyerEmail = String(body.buyerEmail || "").trim();
