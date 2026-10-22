@@ -88,6 +88,8 @@ export interface EventItem {
   tiktokLabel?: string; // Texto del botón de TikTok / otra red
   mapQuery?: string; // Búsqueda personalizada para el mapa (si se deja vacío usa predio + dirección)
   createdByUsername?: string; // Usuario que creó el evento
+  paymentAccountId?: string; // Cuenta de Mercado Pago que recibe el dinero de este evento
+  platformFeePercent?: number; // Comisión de la plataforma en % (0 = sin comisión)
   venueMap?: VenueMapConfig; // Configuración del mapa del lugar, sectores y mesas reservables
   createdAt: string;
 }
@@ -166,8 +168,24 @@ export interface OrderItem {
   approvedAt?: string;
   approvedByUsername?: string;
   approvedByName?: string;
-  issueType?: "TRANSFERENCIA_WEB" | "VENTA_MANUAL_ADMIN" | "CORTESIA_ADMIN";
+  issueType?: "TRANSFERENCIA_WEB" | "VENTA_MANUAL_ADMIN" | "CORTESIA_ADMIN" | "MERCADOPAGO_WEB";
+  // Pago online (Mercado Pago)
+  paymentAccountId?: string;
+  paymentId?: string;
+  paymentStatus?: string; // approved, pending, rejected, etc.
+  paymentMethod?: string; // credit_card, debit_card, account_money, bank_transfer...
+  platformFee?: number; // Comisión retenida por la plataforma (ARS)
+  expiresAt?: string; // Vencimiento de la reserva si no se paga
   createdAt: string;
+}
+
+/** Cuenta de cobro (vista pública/segura: nunca incluye tokens). */
+export interface PaymentAccountPublic {
+  id: string;
+  label: string;
+  mpUserId: string;
+  email?: string;
+  connectedAt: string;
 }
 
 export interface TicketQR {
