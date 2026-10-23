@@ -1,4 +1,4 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import {
   STATE_BUCKET,
   STATE_FILE,
@@ -262,7 +262,11 @@ export interface MpPreferenceInput {
 }
 
 export async function createPreference(input: MpPreferenceInput) {
-  const back = `${input.siteUrl}/pago/resultado?ref=${encodeURIComponent(
+  const isLocal =
+    input.siteUrl.includes("localhost") || input.siteUrl.includes("127.0.0.1");
+  const publicBase = isLocal ? "https://mastreinta.vercel.app" : input.siteUrl;
+
+  const back = `${publicBase}/pago/resultado?ref=${encodeURIComponent(
     input.externalReference
   )}`;
   const body: Record<string, unknown> = {
@@ -277,16 +281,18 @@ export async function createPreference(input: MpPreferenceInput) {
     ],
     payer: { email: input.buyerEmail, name: input.buyerName },
     external_reference: input.externalReference,
-    notification_url: `${input.siteUrl}/api/mp/webhook?acc=${encodeURIComponent(
+    notification_url: `${publicBase}/api/mp/webhook?acc=${encodeURIComponent(
       input.accountId
     )}`,
     back_urls: { success: back, pending: back, failure: back },
-    auto_return: "approved",
     binary_mode: true, // aprobado o rechazado, sin estados intermedios
     statement_descriptor: "MAS30",
     expires: true,
     expiration_date_to: input.expiresAt,
   };
+  if (!isLocal) {
+    body.auto_return = "approved";
+  }
   if (input.fee > 0) body.marketplace_fee = input.fee;
 
   const res = await fetch(`${MP_API}/checkout/preferences`, {
