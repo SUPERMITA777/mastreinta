@@ -427,6 +427,8 @@ export const INITIAL_EVENTS: EventItem[] = [
       },
     ],
     venueMap: createDefaultVenueMap(),
+    paymentAccountId: "acc-test-organizador",
+    marketplaceFeePercent: 10,
     status: "ACTIVO",
     createdAt: "2026-10-20T00:00:00Z",
   },
