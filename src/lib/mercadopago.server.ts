@@ -307,7 +307,7 @@ export async function createPreference(input: MpPreferenceInput) {
   if (!res.ok) {
     throw new Error(json?.message || `Mercado Pago rechazó la preferencia (${res.status})`);
   }
-  return json as { id: string; init_point: string };
+  return json as { id: string; init_point: string; sandbox_init_point?: string };
 }
 
 export interface MpPayment {

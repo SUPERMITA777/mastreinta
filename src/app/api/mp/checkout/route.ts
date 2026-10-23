@@ -209,10 +209,21 @@ export async function POST(req: Request) {
         siteUrl,
         expiresAt,
       });
+      const isTestAccount =
+        account.id.includes("test") ||
+        account.accessToken.startsWith("TEST-") ||
+        Boolean(account.email?.includes("testuser")) ||
+        siteUrl.includes("localhost");
+
+      const initPoint =
+        isTestAccount && pref.sandbox_init_point
+          ? pref.sandbox_init_point
+          : pref.init_point;
+
       return NextResponse.json({
         ok: true,
         orderCode: created.order.orderCode,
-        initPoint: pref.init_point,
+        initPoint,
       });
     } catch (err) {
       // Revertir la reserva si no se pudo generar el link de pago
