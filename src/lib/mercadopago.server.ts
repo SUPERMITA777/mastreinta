@@ -268,7 +268,7 @@ export async function createPreference(input: MpPreferenceInput) {
 
   const back = `${publicBase}/pago/resultado?ref=${encodeURIComponent(
     input.externalReference
-  )}`;
+  )}&t=${encodeURIComponent(orderAccessToken(input.externalReference))}`;
   const body: Record<string, unknown> = {
     items: [
       {
@@ -389,13 +389,32 @@ export function uniqueOrderCode(orders: OrderItem[]): string {
   const used = new Set(orders.map((o) => o.orderCode));
   let code = "";
   do {
-    code = `MAS30-${crypto.randomInt(1000, 10000)}`;
+    // 8 caracteres hexadecimales (~4.300 millones de combinaciones) en lugar de 4 dígitos
+    code = `MAS30-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
   } while (used.has(code));
   return code;
 }
 
 export function newOrderId(): string {
   return `ord-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
+}
+
+/**
+ * Token de acceso a una orden: permite al comprador consultar su orden/QR sin exponerla
+ * a quien solo conozca el id. Se incluye en la URL de retorno de Mercado Pago.
+ */
+export function orderAccessToken(orderId: string): string {
+  return crypto
+    .createHmac("sha256", ADMIN_API_SECRET)
+    .update(`order:${orderId}`)
+    .digest("base64url")
+    .slice(0, 32);
+}
+
+export function verifyOrderAccessToken(orderId: string, token: string): boolean {
+  const expected = orderAccessToken(orderId);
+  if (!token || token.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 }
 
 /** Libera mesas y descarta órdenes MP pendientes que vencieron sin pagarse. */

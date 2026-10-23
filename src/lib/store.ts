@@ -17,7 +17,6 @@ import {
   VenueSpot,
   VenueSpotStatus,
 } from "./types";
-import { getSupabaseClient } from "./supabase";
 import { getArgentinaDateKey } from "./dateUtils";
 
 const STORAGE_KEYS = {
@@ -156,11 +155,14 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
   },
 ];
 
+// IMPORTANTE: los usuarios semilla NO llevan contraseña en el código (el repositorio
+// es público). Definí cada contraseña con `node scripts/reset-admin-password.mjs <usuario>`
+// antes del primer login; hasta entonces la cuenta no puede autenticarse.
 export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-superadmin-1",
     username: "superadmin",
-    password: "supermas30",
+    password: "",
     fullName: "Superadministrador MASTREINTA",
     role: "SUPERADMIN",
     assignedEventIds: [],
@@ -170,7 +172,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-admin-1",
     username: "admin",
-    password: "mas30admin",
+    password: "",
     fullName: "Administrador de Eventos",
     role: "ADMIN",
     assignedEventIds: ["evt-halloween-3110"],
@@ -180,7 +182,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-lector-1",
     username: "lector",
-    password: "lector2026",
+    password: "",
     fullName: "Lector QR Puerta · Validador",
     role: "LECTOR_QR",
     assignedEventIds: [
@@ -195,7 +197,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-caja-1",
     username: "caja1",
-    password: "caja2026",
+    password: "",
     fullName: "Caja 1 · Verificación Transferencias",
     role: "CAJA_VENTAS",
     assignedEventIds: ["evt-halloween-3110"],
@@ -205,7 +207,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-rrpp-1",
     username: "rrpp1",
-    password: "rrpp2026",
+    password: "",
     fullName: "RRPP 1 · Promoción MASTREINTA",
     role: "RRPP",
     assignedEventIds: ["evt-halloween-3110"],
@@ -215,7 +217,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
     id: "usr-puerta-1",
     username: "puerta",
-    password: "puerta2026",
+    password: "",
     fullName: "Operador Puerta Principal",
     role: "LECTOR_QR",
     assignedEventIds: [
@@ -939,37 +941,6 @@ export async function upsertEvent(
   notifyStoreUpdate();
   await pushToCloudStore({ events: updated });
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("events").upsert({
-        id: event.id,
-        slug: event.slug,
-        title: event.title,
-        subtitle: event.subtitle,
-        category: event.category,
-        date: event.date,
-        time: event.time,
-        venue_name: event.venueName,
-        venue_address: event.venueAddress,
-        venue_city: event.venueCity,
-        map_url: event.mapUrl,
-        flyer_url: event.flyerUrl,
-        badge: event.badge,
-        featured: event.featured,
-        age_restriction: event.ageRestriction,
-        dress_code: event.dressCode,
-        description: event.description,
-        highlights: event.highlights,
-        lineup: event.lineup,
-        ticket_tiers: event.ticketTiers,
-        status: event.status,
-      });
-    } catch (e) {
-      console.warn("Supabase sync fallback local:", e);
-    }
-  }
-
   return updated;
 }
 
@@ -982,14 +953,6 @@ export async function deleteEvent(eventId: string): Promise<EventItem[]> {
   }
   notifyStoreUpdate();
   await pushToCloudStore({ events: updated });
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("events").delete().eq("id", eventId);
-    } catch {
-      // fallback local
-    }
-  }
   return updated;
 }
 
@@ -1089,8 +1052,13 @@ export async function createTransferOrder(input: {
   const unitPrice = matchingSpot ? matchingSpot.price : tier.price;
   const totalAmount = matchingSpot ? matchingSpot.price : tier.price * input.quantity;
 
-  const randomDigits = Math.floor(1000 + Math.random() * 9000);
-  const orderCode = `MAS30-${randomDigits}`;
+  const randomHex = Array.from(
+    crypto.getRandomValues(new Uint8Array(4)),
+    (b) => b.toString(16).padStart(2, "0")
+  )
+    .join("")
+    .toUpperCase();
+  const orderCode = `MAS30-${randomHex}`;
 
   const normalizedAttendees: OrderAttendeeInput[] = Array.from(
     { length: totalQrCount },
@@ -1169,35 +1137,6 @@ export async function createTransferOrder(input: {
 
   const orders = [newOrder, ...getOrders()];
   saveOrders(orders);
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("orders").insert({
-        id: newOrder.id,
-        order_code: newOrder.orderCode,
-        event_id: newOrder.eventId,
-        event_title: newOrder.eventTitle,
-        event_date: newOrder.eventDateLabel,
-        event_venue: newOrder.eventVenue,
-        buyer_name: newOrder.buyerName,
-        buyer_dni: newOrder.buyerDni,
-        buyer_email: newOrder.buyerEmail,
-        buyer_phone: newOrder.buyerPhone,
-        tier_id: newOrder.tierId,
-        tier_name: newOrder.tierName,
-        unit_price: newOrder.unitPrice,
-        quantity: newOrder.quantity,
-        total_amount: newOrder.totalAmount,
-        transfer_sender: newOrder.transferSender,
-        transfer_reference: newOrder.transferReference,
-        notes: newOrder.notes,
-        status: "PENDIENTE",
-      });
-    } catch {
-      // fallback local
-    }
-  }
 
   return newOrder;
 }
@@ -1352,45 +1291,6 @@ export async function approveOrderAndGenerateQRs(
   const allTickets = [...newTickets, ...existingTickets];
   saveTickets(allTickets);
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase
-        .from("orders")
-        .update({
-          status: "APROBADA",
-          approved_at: approvedOrder.approvedAt,
-          approved_by_username: approvedOrder.approvedByUsername,
-          approved_by_name: approvedOrder.approvedByName,
-        })
-        .eq("id", target.id);
-
-      await supabase.from("tickets").insert(
-        newTickets.map((t) => ({
-          id: t.id,
-          qr_code: t.qrCode,
-          order_id: t.orderId,
-          order_code: t.orderCode,
-          event_id: t.eventId,
-          event_title: t.eventTitle,
-          event_date: t.eventDateLabel,
-          event_venue: t.eventVenue,
-          tier_name: t.tierName,
-          holder_name: t.holderName,
-          holder_dni: t.holderDni,
-          ticket_number: t.ticketNumber,
-          total_in_order: t.totalInOrder,
-          unit_price: t.unitPrice ?? 10000,
-          generated_by_username: t.generatedByUsername,
-          generated_by_name: t.generatedByName,
-          status: "VALIDO",
-        }))
-      );
-    } catch {
-      // fallback local
-    }
-  }
-
   return { order: approvedOrder, generatedTickets: newTickets };
 }
 
@@ -1526,16 +1426,6 @@ export async function deleteOrder(orderId: string): Promise<void> {
         );
         void upsertEvent(ev);
       }
-    }
-  }
-
-  const supabase = getSupabaseClient();
-  if (supabase && target) {
-    try {
-      await supabase.from("tickets").delete().eq("order_id", target.id);
-      await supabase.from("orders").delete().eq("id", target.id);
-    } catch {
-      // fallback local
     }
   }
 }
@@ -1731,23 +1621,6 @@ export async function validateAndScanQR(
   );
   saveTickets(updatedList);
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase
-        .from("tickets")
-        .update({
-          status: "USADO",
-          scanned_at: nowIso,
-          scanned_by: operatorName,
-          scanned_door: doorName,
-        })
-        .eq("id", match.id);
-    } catch {
-      // fallback local
-    }
-  }
-
   return {
     outcome: "AUTORIZADO",
     message: "ACCESO AUTORIZADO · Entrada válida y registrada en puerta.",
@@ -1793,36 +1666,12 @@ export async function updateTicketStatus(
     };
   });
   saveTickets(updated);
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase
-        .from("tickets")
-        .update({
-          status: newStatus,
-          scanned_at: newStatus === "VALIDO" ? null : nowIso,
-        })
-        .eq("id", ticketId);
-    } catch {
-      // fallback local
-    }
-  }
 }
 
 export async function deleteSingleTicket(ticketId: string): Promise<void> {
   const current = getTickets();
   const updated = current.filter((t) => t.id !== ticketId);
   saveTickets(updated);
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("tickets").delete().eq("id", ticketId);
-    } catch {
-      // fallback local
-    }
-  }
 }
 
 export async function resetTicketScanStatus(ticketId: string): Promise<void> {
@@ -1882,25 +1731,6 @@ export async function createInquiry(input: {
   const updated = [newItem, ...getInquiries()];
   saveInquiries(updated);
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("inquiries").insert({
-        id: newItem.id,
-        type: newItem.type,
-        event_id: newItem.eventId,
-        event_title: newItem.eventTitle,
-        name: newItem.name,
-        email: newItem.email,
-        phone: newItem.phone,
-        message: newItem.message,
-        status: "PENDIENTE",
-      });
-    } catch {
-      // fallback local
-    }
-  }
-
   return newItem;
 }
 
@@ -1920,22 +1750,6 @@ export async function replyInquiry(
       : inq
   );
   saveInquiries(updated);
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase
-        .from("inquiries")
-        .update({
-          reply: replyText,
-          is_public: makePublic,
-          status: "RESPONDIDA",
-        })
-        .eq("id", inquiryId);
-    } catch {
-      // fallback local
-    }
-  }
 }
 
 export async function upsertInquiry(item: InquiryItem): Promise<InquiryItem[]> {
@@ -1946,42 +1760,12 @@ export async function upsertInquiry(item: InquiryItem): Promise<InquiryItem[]> {
     : [item, ...current];
   saveInquiries(updated);
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("inquiries").upsert({
-        id: item.id,
-        type: item.type,
-        event_id: item.eventId || "ALL",
-        event_title: item.eventTitle || "Todos los Eventos",
-        name: item.name,
-        email: item.email,
-        phone: item.phone,
-        message: item.message,
-        reply: item.reply || "",
-        is_public: item.isPublic,
-        status: item.status,
-      });
-    } catch {
-      // fallback local
-    }
-  }
-
   return updated;
 }
 
 export async function deleteInquiry(inquiryId: string): Promise<InquiryItem[]> {
   const updated = getInquiries().filter((i) => i.id !== inquiryId);
   saveInquiries(updated);
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      await supabase.from("inquiries").delete().eq("id", inquiryId);
-    } catch {
-      // fallback local
-    }
-  }
 
   return updated;
 }

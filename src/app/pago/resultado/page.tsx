@@ -12,13 +12,14 @@ type Info = {
   orderCode: string;
   eventTitle: string;
   buyerName?: string;
-  buyerEmail?: string;
   totalAmount?: number;
   tickets?: TicketQR[];
 } | null;
 
 function Resultado() {
-  const ref = useSearchParams().get("ref") || "";
+  const searchParams = useSearchParams();
+  const ref = searchParams.get("ref") || "";
+  const accessToken = searchParams.get("t") || "";
   const [info, setInfo] = useState<Info>(null);
   const [tries, setTries] = useState(0);
 
@@ -27,9 +28,10 @@ function Resultado() {
     let stop = false;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/mp/order-status?ref=${encodeURIComponent(ref)}`, {
-          cache: "no-store",
-        });
+        const r = await fetch(
+          `/api/mp/order-status?ref=${encodeURIComponent(ref)}&t=${encodeURIComponent(accessToken)}`,
+          { cache: "no-store" }
+        );
         if (r.ok && !stop) {
           const d = await r.json();
           setInfo(d);
@@ -46,7 +48,7 @@ function Resultado() {
     return () => {
       stop = true;
     };
-  }, [ref, tries]);
+  }, [ref, accessToken, tries]);
 
   const status = info?.status;
 
@@ -67,7 +69,6 @@ function Resultado() {
             </p>
             <div className="inline-flex flex-wrap items-center justify-center gap-2 px-4 py-1.5 rounded-full bg-white/10 text-xs font-mono text-white/90">
               <span>Orden #{info?.orderCode}</span>
-              {info?.buyerEmail && <span>· Enviada a {info.buyerEmail}</span>}
             </div>
           </div>
 

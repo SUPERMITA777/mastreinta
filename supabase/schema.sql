@@ -127,12 +127,20 @@ create table if not exists public.settings (
 -- ============================================================================
 -- POLÍTICAS DE SEGURIDAD (ROW LEVEL SECURITY - RLS)
 -- ============================================================================
+-- IMPORTANTE (corrección de seguridad):
+-- Toda la aplicación accede a Postgres EXCLUSIVAMENTE desde el servidor usando
+-- la service_role key (que ignora RLS). El cliente nunca debe leer ni escribir
+-- estas tablas. Por lo tanto RLS queda habilitado y SIN políticas permisivas:
+-- con RLS habilitado y sin políticas, el rol `anon` y `authenticated` quedan
+-- totalmente bloqueados (deny-by-default). La service_role sigue funcionando.
+-- ============================================================================
 alter table public.events enable row level security;
 alter table public.orders enable row level security;
 alter table public.tickets enable row level security;
 alter table public.inquiries enable row level security;
 alter table public.settings enable row level security;
 
+-- Eliminar TODAS las políticas históricas permisivas (usaban using(true)).
 drop policy if exists "Acceso lectura pública eventos" on public.events;
 drop policy if exists "Gestión eventos" on public.events;
 drop policy if exists "Acceso órdenes" on public.orders;
@@ -140,12 +148,33 @@ drop policy if exists "Acceso tickets QR" on public.tickets;
 drop policy if exists "Acceso consultas y preguntas" on public.inquiries;
 drop policy if exists "Acceso configuración" on public.settings;
 
-create policy "Acceso lectura pública eventos" on public.events for select using (true);
-create policy "Gestión eventos" on public.events for all using (true) with check (true);
-create policy "Acceso órdenes" on public.orders for all using (true) with check (true);
-create policy "Acceso tickets QR" on public.tickets for all using (true) with check (true);
-create policy "Acceso consultas y preguntas" on public.inquiries for all using (true) with check (true);
-create policy "Acceso configuración" on public.settings for all using (true) with check (true);
+-- Bloqueo explícito y por defecto para los roles de cliente.
+-- (No se crean políticas permisivas: el acceso anónimo queda denegado.)
+revoke all on public.events from anon, authenticated;
+revoke all on public.orders from anon, authenticated;
+revoke all on public.tickets from anon, authenticated;
+revoke all on public.inquiries from anon, authenticated;
+revoke all on public.settings from anon, authenticated;
+
+-- Política restrictiva explícita: solo la service_role (servidor) puede operar.
+-- Nota: `service_role` omite RLS de todos modos; esta política documenta la
+-- intención y evita accesos accidentales si se otorgan grants en el futuro.
+drop policy if exists "solo service_role" on public.events;
+drop policy if exists "solo service_role" on public.orders;
+drop policy if exists "solo service_role" on public.tickets;
+drop policy if exists "solo service_role" on public.inquiries;
+drop policy if exists "solo service_role" on public.settings;
+
+create policy "solo service_role" on public.events
+  for all to service_role using (true) with check (true);
+create policy "solo service_role" on public.orders
+  for all to service_role using (true) with check (true);
+create policy "solo service_role" on public.tickets
+  for all to service_role using (true) with check (true);
+create policy "solo service_role" on public.inquiries
+  for all to service_role using (true) with check (true);
+create policy "solo service_role" on public.settings
+  for all to service_role using (true) with check (true);
 
 -- ============================================================================
 -- CARGA INICIAL DE LOS 4 PRÓXIMOS EVENTOS OFICIALES MAS30 ($10.000 ARS)

@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import QRCode from "qrcode";
 import fs from "fs/promises";
@@ -167,6 +167,28 @@ export async function POST(req: Request) {
             flyerExt = "webp";
           }
         } else if (rawFlyerUrl.startsWith("http")) {
+          // Defensa SSRF: solo se permite descargar el flyer desde hosts de confianza
+          // (el propio sitio o el almacenamiento de Supabase).
+          const allowedHosts = new Set<string>();
+          try {
+            allowedHosts.add(
+              new URL(
+                process.env.NEXT_PUBLIC_SUPABASE_URL ||
+                  "https://hpbwcewuekxfqlofwpzu.supabase.co"
+              ).host
+            );
+          } catch {
+            // ignore
+          }
+          try {
+            allowedHosts.add(new URL(publicBaseUrl).host);
+          } catch {
+            // ignore
+          }
+          const flyerTarget = new URL(rawFlyerUrl);
+          if (!allowedHosts.has(flyerTarget.host)) {
+            throw new Error("Host de flyer no permitido");
+          }
           const flyerRes = await fetch(rawFlyerUrl);
           if (flyerRes.ok) {
             const contentType = flyerRes.headers.get("content-type") || "image/png";

@@ -28,6 +28,14 @@ export async function POST(req: Request) {
   if (!user || !pass || pass.length > 200) {
     return NextResponse.json({ ok: false, error: "Credenciales inválidas" }, { status: 400 });
   }
+  // Las contraseñas por defecto quedaron publicadas en el código: se rechazan
+  // siempre, aunque el hash coincida (hallazgo #3).
+  if (KNOWN_DEFAULT_PASSWORDS.has(pass.toLowerCase())) {
+    return NextResponse.json(
+      { ok: false, error: "Esa contraseña está comprometida. Cambiala desde el panel." },
+      { status: 403 }
+    );
+  }
 
   // Anti fuerza bruta: 8 intentos / 15 min por IP y 5 por usuario
   if (

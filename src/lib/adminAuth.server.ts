@@ -34,7 +34,10 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function verifyPassword(plain: string, stored: string): boolean {
-  if (!isHashed(stored)) return safeEqual(plain, stored || ""); // legado en texto plano
+  // Solo se aceptan contraseñas almacenadas con hash scrypt.
+  // Se eliminó el fallback de texto plano (hallazgo #9): una credencial sin
+  // hash no es válida y debe migrarse con scripts/reset-admin-password.mjs.
+  if (!isHashed(stored)) return false;
   const [, saltHex, hashHex] = stored.split("$");
   try {
     const hash = crypto.scryptSync(plain, Buffer.from(saltHex, "hex"), 64);
@@ -84,13 +87,15 @@ export interface AdminIdentity {
   via: "session" | "secret";
 }
 
-/** Verifica el Origin en métodos que modifican datos (defensa CSRF adicional a SameSite). */
+/** Verifica el Origin en métodos que modifican datos (defensa CSRF además de SameSite).
+ *  Exige que Origin esté presente y coincida con el host real de la petición. */
 export function isSameOrigin(req: Request): boolean {
   if (req.method === "GET" || req.method === "HEAD") return true;
   const origin = req.headers.get("origin");
-  if (!origin) return true; // llamadas servidor-a-servidor
+  if (!origin) return false; // sin Origin no se aceptan mutaciones (los navegadores siempre lo envían)
   try {
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+    const host = req.headers.get("host");
+    if (!host) return false;
     return new URL(origin).host === host;
   } catch {
     return false;
@@ -99,18 +104,19 @@ export function isSameOrigin(req: Request): boolean {
 
 /**
  * Devuelve el operador autenticado o null.
- * - Cookie de sesión firmada (HttpOnly) emitida por /api/auth/login, o
- * - header x-admin-token == ADMIN_API_SECRET (solo para llamadas internas del servidor).
+ * - header x-admin-token == ADMIN_API_SECRET (llamadas internas del servidor, sin Origin), o
+ * - cookie de sesión firmada (HttpOnly) emitida por /api/auth/login.
  */
 export async function getAdminFromRequest(
   req: Request
 ): Promise<AdminIdentity | null> {
-  if (!isSameOrigin(req)) return null;
-
+  // Llamadas internas servidor-a-servidor: autenticadas por secreto, no por Origin.
   const header = (req.headers.get("x-admin-token") || "").trim();
   if (header && safeEqual(header, ADMIN_API_SECRET)) {
     return { username: "system", fullName: "Sistema", role: "SUPERADMIN", via: "secret" };
   }
+
+  if (!isSameOrigin(req)) return null;
 
   const cookie = readCookie(req, SESSION_COOKIE);
   const [payload, sig] = cookie.split(".");

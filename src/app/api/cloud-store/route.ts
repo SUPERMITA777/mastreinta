@@ -24,6 +24,14 @@ import { mutateState } from "@/lib/mercadopago.server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+/** Tamaño máximo aceptado para una imagen en base64 (≈5 MB decodificados). */
+const MAX_IMAGE_DATAURL_CHARS = 7_000_000;
+
+/** Devuelve true si el data URL de imagen supera el tamaño permitido. */
+function imageTooLarge(dataUrl: string): boolean {
+  return dataUrl.length > MAX_IMAGE_DATAURL_CHARS;
+}
+
 /** Filtra el estado para visitas públicas: oculta contraseñas, tickets, órdenes y API keys */
 function getSanitizedPublicState(raw: Record<string, unknown>) {
   const rawSettings = (raw.settings || {}) as Record<string, unknown>;
@@ -32,10 +40,34 @@ function getSanitizedPublicState(raw: Record<string, unknown>) {
   const rawInquiries = Array.isArray(raw.inquiries) ? raw.inquiries : [];
 
   return {
-    // Se quita el usuario interno que creó el evento
+    // Se quitan datos internos: usuario creador, cuenta de cobro y datos personales de reservas
     events: rawEvents.map((ev: Record<string, unknown>) => {
-      const { createdByUsername: _u, ...rest } = ev;
+      const {
+        createdByUsername: _u,
+        paymentAccountId: _p,
+        platformFeePercent: _f,
+        ...rest
+      } = ev;
       void _u;
+      void _p;
+      void _f;
+      const venueMap = rest.venueMap as
+        | { spots?: Array<Record<string, unknown>> }
+        | undefined;
+      if (venueMap && Array.isArray(venueMap.spots)) {
+        return {
+          ...rest,
+          venueMap: {
+            ...venueMap,
+            spots: venueMap.spots.map((s) => {
+              const { reservedByName: _n, reservedByOrderCode: _o, ...spot } = s;
+              void _n;
+              void _o;
+              return spot;
+            }),
+          },
+        };
+      }
       return rest;
     }),
     // Configuración bancaria visible para transferencias (excluye estrictamente smtpPass y resendApiKey)
@@ -67,7 +99,7 @@ function getSanitizedPublicState(raw: Record<string, unknown>) {
 }
 
 /** Estado para operadores: nunca se envían hashes/contraseñas; los secretos solo al SUPERADMIN. */
-function getAdminState(raw: Record<string, unknown>, admin: AdminIdentity) {
+async function getAdminState(raw: Record<string, unknown>, admin: AdminIdentity) {
   const out: Record<string, unknown> = { ...raw };
   if (Array.isArray(raw.adminUsers)) {
     out.adminUsers = (raw.adminUsers as Array<Record<string, unknown>>).map((u) => ({
@@ -82,6 +114,9 @@ function getAdminState(raw: Record<string, unknown>, admin: AdminIdentity) {
     delete s.adminPin;
     out.settings = s;
   }
+  // Datos personales y códigos QR: solo se envían si el rol tiene el permiso explícito.
+  if (!(await hasPermission(admin, "canViewOrders"))) delete out.orders;
+  if (!(await hasPermission(admin, "canViewTickets"))) delete out.tickets;
   return out;
 }
 export async function GET(req: Request) {
@@ -99,7 +134,7 @@ export async function GET(req: Request) {
 
     // Visitas públicas: solo datos públicos, sin credenciales ni QRs ajenos
     const stateToSend = admin
-      ? getAdminState(parsed, admin)
+      ? await getAdminState(parsed, admin)
       : getSanitizedPublicState(parsed);
 
     return NextResponse.json(
@@ -243,6 +278,12 @@ export async function POST(req: Request) {
       if (!(await hasPermission(admin, "canManageEvents"))) {
         return NextResponse.json({ ok: false, error: "Sin permiso" }, { status: 403 });
       }
+      if (imageTooLarge(String(payload.dataUrl))) {
+        return NextResponse.json(
+          { ok: false, error: "La imagen supera el tamaño máximo permitido (5 MB)." },
+          { status: 413 }
+        );
+      }
       const match = String(payload.dataUrl).match(
         /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,(.+)$/
       );
@@ -276,6 +317,10 @@ export async function POST(req: Request) {
     if (Array.isArray(payload.events)) {
       for (const ev of payload.events) {
         if (ev && typeof ev.flyerUrl === "string" && ev.flyerUrl.startsWith("data:image/")) {
+          if (imageTooLarge(ev.flyerUrl)) {
+            ev.flyerUrl = ""; // Imagen demasiado grande: se descarta
+            continue;
+          }
           const match = ev.flyerUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,(.+)$/);
           if (match) {
             const mimeType = match[1];

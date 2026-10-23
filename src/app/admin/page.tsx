@@ -106,11 +106,7 @@ import {
   TicketTier,
   VenueMapConfig,
 } from "@/lib/types";
-import {
-  DEFAULT_SUPABASE_URL,
-  getSupabaseClient,
-  isSupabaseConfigured,
-} from "@/lib/supabase";
+import { DEFAULT_SUPABASE_URL } from "@/lib/supabase";
 import TicketQRCard from "@/components/TicketQRCard";
 import BreshPosterArt from "@/components/BreshPosterArt";
 import {
@@ -126,6 +122,16 @@ import {
   TIMEZONE_ARGENTINA,
 } from "@/lib/dateUtils";
 import VenueMapEditor from "@/components/VenueMapEditor";
+
+/** Escapa texto que se interpola en HTML generado a mano (evita XSS almacenado). */
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 type AdminTab =
   | "hub_eventos"
@@ -357,9 +363,6 @@ export default function AdminDashboardPage() {
     };
     reader.readAsDataURL(file);
   };
-  const [supabaseKeyInput, setSupabaseKeyInput] = useState("");
-  const [supabaseStatusMsg, setSupabaseStatusMsg] = useState("");
-
   const syncAll = () => {
     const evs = getEvents();
     setEvents(evs);
@@ -371,11 +374,6 @@ export default function AdminDashboardPage() {
     setAdminUsers(getAdminUsers());
     setAdminRoles(getAdminRoles());
     setCurrentUser(getCurrentAdminSession());
-    if (typeof window !== "undefined") {
-      setSupabaseKeyInput(
-        localStorage.getItem("mas30_supabase_anon_key") || ""
-      );
-    }
     if (!manualEventId && evs.length > 0) {
       setManualEventId(evs[0].id);
       if (evs[0].ticketTiers.length > 0) {
@@ -1001,9 +999,11 @@ export default function AdminDashboardPage() {
       (t) => t.status === "BLOQUEADO" || t.status === "ANULADO"
     ).length;
 
-    const eventTitleHeader = eventObj
-      ? `${eventObj.title} · ${eventObj.dateLabel} · ${eventObj.venueName}`
-      : "PADRÓN CONSOLIDADO DE ACCESOS (TODOS LOS EVENTOS)";
+    const eventTitleHeader = escapeHtml(
+      eventObj
+        ? `${eventObj.title} · ${eventObj.dateLabel} · ${eventObj.venueName}`
+        : "PADRÓN CONSOLIDADO DE ACCESOS (TODOS LOS EVENTOS)"
+    );
 
     const generatedDateTime = formatArgentinaDateTime(new Date());
 
@@ -1021,14 +1021,14 @@ export default function AdminDashboardPage() {
         return `
           <tr>
             <td style="text-align:center;color:#666;">${idx + 1}</td>
-            <td style="font-family:monospace;font-weight:bold;text-align:center;">${t.shortCode}</td>
-            <td><strong>${t.holderName}</strong></td>
-            <td style="font-family:monospace;">${t.holderDni || "-"}</td>
-            <td>${t.tierName}</td>
-            <td style="color:#555;">${t.eventTitle}</td>
-            <td style="font-family:monospace;font-size:10px;color:#777;">${t.orderCode}</td>
+            <td style="font-family:monospace;font-weight:bold;text-align:center;">${escapeHtml(t.shortCode)}</td>
+            <td><strong>${escapeHtml(t.holderName)}</strong></td>
+            <td style="font-family:monospace;">${escapeHtml(t.holderDni || "-")}</td>
+            <td>${escapeHtml(t.tierName)}</td>
+            <td style="color:#555;">${escapeHtml(t.eventTitle)}</td>
+            <td style="font-family:monospace;font-size:10px;color:#777;">${escapeHtml(t.orderCode)}</td>
             <td style="text-align:center;">${statusBadge}</td>
-            <td style="font-size:10px;text-align:center;color:#555;">${scanTime}</td>
+            <td style="font-size:10px;text-align:center;color:#555;">${escapeHtml(scanTime)}</td>
             <td style="width:70px;border-bottom:1px solid #ccc;"></td>
           </tr>
         `;
@@ -1142,7 +1142,7 @@ export default function AdminDashboardPage() {
           <div class="meta">
             <div>Fecha de Emisión: <strong>${generatedDateTime}</strong></div>
             <div>Zona horaria: Buenos Aires (GMT-3)</div>
-            <div>Operador: ${currentUser?.fullName || "Admin"} (@${currentUser?.username || "admin"})</div>
+            <div>Operador: ${escapeHtml(currentUser?.fullName || "Admin")} (@${escapeHtml(currentUser?.username || "admin")})</div>
           </div>
         </div>
 
@@ -5922,9 +5922,7 @@ export default function AdminDashboardPage() {
                 Supabase Cloud · Proyecto mastreinta
               </div>
               <h3 className="text-xl font-normal text-white">
-                {isSupabaseConfigured || supabaseKeyInput.trim()
-                  ? "Conectado a hpbwcewuekxfqlofwpzu"
-                  : "Proyecto Detectado: hpbwcewuekxfqlofwpzu"}
+                Proyecto Detectado: hpbwcewuekxfqlofwpzu
               </h3>
               <div className="space-y-3 text-xs">
                 <div>
@@ -5935,50 +5933,11 @@ export default function AdminDashboardPage() {
                     {DEFAULT_SUPABASE_URL}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[#8a8a8a] mb-1">
-                    Publishable Key / anon public Key (Pegar con botón Copy de Supabase)
-                  </label>
-                  <input
-                    type="text"
-                    value={supabaseKeyInput}
-                    onChange={(e) => setSupabaseKeyInput(e.target.value)}
-                    placeholder="sb_publishable_... o eyJhbGciOiJIUzI1NiIs..."
-                    className="w-full px-3 py-2 rounded bg-[#121212] border border-[#353535] font-mono text-white text-xs"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (typeof window !== "undefined") {
-                        localStorage.setItem(
-                          "mas30_supabase_anon_key",
-                          supabaseKeyInput.trim()
-                        );
-                      }
-                      const client = getSupabaseClient();
-                      if (client) {
-                        for (const ev of events) {
-                          await upsertEvent(ev);
-                        }
-                        setSupabaseStatusMsg(
-                          "✓ Clave guardada y los 4 eventos sincronizados con Supabase."
-                        );
-                      } else {
-                        setSupabaseStatusMsg("Pegá una clave válida primero.");
-                      }
-                    }}
-                    className="px-4 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer"
-                  >
-                    Guardar Key & Sincronizar Eventos
-                  </button>
-                </div>
-                {supabaseStatusMsg && (
-                  <p className="text-xs text-[#ffb5d7] pt-1">
-                    {supabaseStatusMsg}
-                  </p>
-                )}
+                <p className="text-xs text-[#ffb5d7] leading-relaxed">
+                  Por seguridad, el navegador ya no se conecta directamente a la
+                  base de datos con la clave pública. Toda lectura y escritura
+                  pasa por el servidor con una sesión de operador autenticada.
+                </p>
               </div>
               <p className="text-xs text-[#8a8a8a] leading-relaxed pt-2 border-t border-[#353535]">
                 Recordá ejecutar una única vez el archivo{" "}
