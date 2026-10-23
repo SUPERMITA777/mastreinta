@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import {
   BUCKET_NAME,
@@ -410,28 +410,22 @@ export async function POST(req: Request) {
         );
         const cutoff = Date.now() - 5 * 60 * 1000;
         const keep = cloudOrders.filter((o) => {
-          if (o.issueType !== "MERCADOPAGO_WEB" || incomingIds.has(o.id as string))
-            return false;
-          const ts = new Date(String(o.approvedAt || o.createdAt || 0)).getTime();
-          return ts > cutoff;
+          return !incomingIds.has(o.id as string);
         });
         if (keep.length > 0) {
           incoming.orders = [...keep, ...(incoming.orders as unknown[])];
-          if (Array.isArray(incoming.tickets)) {
-            const keepIds = new Set(keep.map((o) => o.id));
-            const have = new Set(
-              (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
-            );
-            const cloudTickets = (Array.isArray(currentCloud.tickets)
-              ? currentCloud.tickets
-              : []) as Array<Record<string, unknown>>;
-            incoming.tickets = [
-              ...cloudTickets.filter(
-                (t) => keepIds.has(t.orderId) && !have.has(t.id as string)
-              ),
-              ...(incoming.tickets as unknown[]),
-            ];
-          }
+        }
+        if (Array.isArray(incoming.tickets)) {
+          const have = new Set(
+            (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
+          );
+          const cloudTickets = (Array.isArray(currentCloud.tickets)
+            ? currentCloud.tickets
+            : []) as Array<Record<string, unknown>>;
+          incoming.tickets = [
+            ...cloudTickets.filter((t) => !have.has(t.id as string)),
+            ...(incoming.tickets as unknown[]),
+          ];
         }
       }
 
