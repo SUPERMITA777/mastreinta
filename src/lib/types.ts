@@ -125,6 +125,7 @@ export interface RolePermissions {
   canIssueManualQR: boolean;
   canManageEvents: boolean;
   canDeleteEvents: boolean;
+  canManageUsers: boolean;
   canViewAnalytics: boolean;
   canViewTickets: boolean;
   canViewRendicion: boolean;
@@ -235,6 +236,9 @@ export interface TicketQR {
   status: "VALIDO" | "USADO" | "ANULADO" | "BLOQUEADO";
   scannedAt?: string;
   scannedBy?: string;
+  scannedByUsername?: string;
+  scannedByName?: string;
+  scannedDoor?: string;
   createdAt: string;
 }
 

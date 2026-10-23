@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -11,11 +11,13 @@ import {
   Clock,
   Lock,
   LogOut,
+  MapPin,
   QrCode,
   RotateCcw,
   Search,
   ShieldCheck,
   Upload,
+  User,
   X,
   XCircle,
 } from "lucide-react";
@@ -46,6 +48,8 @@ export default function DoorQRScannerPage() {
     useState<string>("TODOS");
   const [manualInput, setManualInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDoor, setSelectedDoor] = useState<string>("Puerta Principal");
+  const [customDoorName, setCustomDoorName] = useState<string>("");
   const [lastResult, setLastResult] = useState<ScanValidationResult | null>(
     null
   );
@@ -141,10 +145,20 @@ export default function DoorQRScannerPage() {
       }
     }
 
+    const actualDoor =
+      selectedDoor === "Personalizada"
+        ? customDoorName.trim() || "Puerta Personalizada"
+        : selectedDoor;
+
     const operatorLabel = currentUser
-      ? `${currentUser.fullName} (@${currentUser.username})`
+      ? currentUser.fullName
       : "Control Puerta MASTREINTA";
-    const res = await validateAndScanQR(clean, operatorLabel);
+    const res = await validateAndScanQR(
+      clean,
+      operatorLabel,
+      actualDoor,
+      currentUser?.username
+    );
     setLastResult(res);
     syncData();
     if (res.outcome === "AUTORIZADO") {
@@ -418,6 +432,56 @@ export default function DoorQRScannerPage() {
           </div>
         </div>
 
+        {/* Selector de Puerta / Punto de Acceso para Auditoría */}
+        <div className="bg-[#1c1c1c] border border-[#353535] rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-md bg-[#AF2C75]/20 border border-[#AF2C75]/40 flex items-center justify-center text-[#ffb5d7] shrink-0">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[11px] uppercase text-[#8a8a8a] tracking-wider font-medium">
+                Punto de Control & Acceso Activo
+              </p>
+              <p className="text-sm font-semibold text-white">
+                Validando en:{" "}
+                <span className="text-[#ffb5d7]">
+                  {selectedDoor === "Personalizada"
+                    ? customDoorName.trim() || "Puerta Personalizada"
+                    : selectedDoor}
+                </span>
+                <span className="text-xs text-[#8a8a8a] font-normal ml-2">
+                  (Operador: {currentUser.fullName} @{currentUser.username})
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-[#8a8a8a] whitespace-nowrap">Puerta:</span>
+            <select
+              value={selectedDoor}
+              onChange={(e) => setSelectedDoor(e.target.value)}
+              className="px-3 py-1.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white cursor-pointer focus:border-[#ffb5d7] outline-none"
+            >
+              <option value="Puerta Principal">Puerta Principal</option>
+              <option value="Puerta VIP">Puerta VIP</option>
+              <option value="Acceso Pista">Acceso Pista</option>
+              <option value="Boletería / Caja">Boletería / Caja</option>
+              <option value="Puerta Lateral">Puerta Lateral</option>
+              <option value="Personalizada">Personalizada...</option>
+            </select>
+            {selectedDoor === "Personalizada" && (
+              <input
+                type="text"
+                placeholder="Nombre de puerta o acceso..."
+                value={customDoorName}
+                onChange={(e) => setCustomDoorName(e.target.value)}
+                className="px-3 py-1.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white placeholder:text-[#666] focus:border-[#ffb5d7] outline-none"
+              />
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Columna Izquierda: Cámara & Validador */}
           <div className="lg:col-span-6 space-y-6">
@@ -583,13 +647,55 @@ export default function DoorQRScannerPage() {
                           {lastResult.ticket.eventTitle} (
                           {lastResult.ticket.shortCode})
                         </p>
+                        {lastResult.outcome === "AUTORIZADO" && (
+                          <div className="pt-2 border-t border-emerald-500/20 text-emerald-300 space-y-0.5">
+                            <p className="font-semibold flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                              Puerta: <span className="text-white">{lastResult.ticket.scannedDoor || selectedDoor}</span>
+                            </p>
+                            <p className="flex items-center gap-1.5 text-white/80">
+                              <User className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                              Validó: <span className="text-white">{lastResult.ticket.scannedByName || currentUser?.fullName}</span>
+                              {currentUser?.username && (
+                                <span className="text-[#8a8a8a]">(@{currentUser.username})</span>
+                              )}
+                            </p>
+                            <p className="flex items-center gap-1.5 text-[#8a8a8a]">
+                              <Clock className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                              Hora:{" "}
+                              <span className="text-white">
+                                {new Date(lastResult.ticket.scannedAt || Date.now()).toLocaleTimeString("es-AR")} hs
+                              </span>
+                            </p>
+                          </div>
+                        )}
                         {lastResult.previousScannedAt && (
-                          <p className="text-amber-300 pt-1">
-                            Ingresó previamente a las:{" "}
-                            {new Date(
-                              lastResult.previousScannedAt
-                            ).toLocaleTimeString("es-AR")}
-                          </p>
+                          <div className="pt-2 border-t border-amber-500/30 text-amber-300 space-y-0.5">
+                            <p className="font-semibold text-amber-200">
+                              ⚠ Datos del ingreso registrado con anterioridad:
+                            </p>
+                            <p>
+                              • Hora:{" "}
+                              <strong className="text-white">
+                                {new Date(lastResult.previousScannedAt).toLocaleTimeString("es-AR")} hs
+                              </strong>
+                            </p>
+                            <p>
+                              • Puerta:{" "}
+                              <strong className="text-white">
+                                {lastResult.ticket.scannedDoor || "Puerta Principal"}
+                              </strong>
+                            </p>
+                            <p>
+                              • Validado por:{" "}
+                              <strong className="text-white">
+                                {lastResult.ticket.scannedByName || lastResult.ticket.scannedBy || "Operador"}
+                              </strong>{" "}
+                              {lastResult.ticket.scannedByUsername && (
+                                <span className="text-white/70">(@{lastResult.ticket.scannedByUsername})</span>
+                              )}
+                            </p>
+                          </div>
                         )}
                       </div>
                     )}
@@ -660,15 +766,25 @@ export default function DoorQRScannerPage() {
                         {t.tierName} · {t.eventTitle}
                       </p>
                       {isUsed && t.scannedAt && (
-                        <p className="text-[11px] text-[#ffb5d7] flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          Ingresó{" "}
-                          {new Date(t.scannedAt).toLocaleTimeString("es-AR", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          hs
-                        </p>
+                        <div className="text-[11px] text-[#ffb5d7] flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(t.scannedAt).toLocaleTimeString("es-AR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}{" "}
+                            hs
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded bg-white/10 text-white font-mono text-[10px]">
+                            {t.scannedDoor || "Puerta Principal"}
+                          </span>
+                          {(t.scannedByName || t.scannedBy) && (
+                            <span className="text-[#A1A199] text-[10px]">
+                              por {t.scannedByName || t.scannedBy}
+                              {t.scannedByUsername ? ` (@${t.scannedByUsername})` : ""}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
 

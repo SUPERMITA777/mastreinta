@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
@@ -165,6 +165,7 @@ export default function AdminDashboardPage() {
       canIssueManualQR: false,
       canManageEvents: false,
       canDeleteEvents: false,
+      canManageUsers: false,
       canViewAnalytics: false,
       canViewTickets: false,
       canViewRendicion: false,
@@ -484,7 +485,7 @@ export default function AdminDashboardPage() {
       { id: "visitas", allowed: permissions.canViewAnalytics },
       { id: "tickets", allowed: permissions.canViewTickets },
       { id: "consultas", allowed: permissions.canManageInquiries },
-      { id: "usuarios_roles", allowed: isSuper },
+      { id: "usuarios_roles", allowed: isSuper || permissions.canManageUsers },
       { id: "configuracion", allowed: permissions.canManageSettings },
     ];
     const currentIsAllowed = allowedTabs.find((t) => t.id === activeTab)?.allowed;
@@ -671,12 +672,16 @@ export default function AdminDashboardPage() {
 
   const handleCreateAdminUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (
-      !newUserFullName.trim() ||
-      !newUsername.trim() ||
-      (!editingUserId && newUserPassword.trim().length < 8)
-    )
+    if (!newUserFullName.trim() || !newUsername.trim()) {
+      setUserSavedMsg("⚠ Por favor completa nombre y usuario.");
+      setTimeout(() => setUserSavedMsg(""), 4000);
       return;
+    }
+    if (!editingUserId && newUserPassword.trim().length < 4) {
+      setUserSavedMsg("⚠ La contraseña debe tener al menos 4 caracteres.");
+      setTimeout(() => setUserSavedMsg(""), 4000);
+      return;
+    }
     const cleanUsername = newUsername
       .trim()
       .toLowerCase()
@@ -689,7 +694,7 @@ export default function AdminDashboardPage() {
     const created: AdminUser = {
       id: editingUserId || (existing ? existing.id : `usr-${Date.now()}`),
       username: cleanUsername,
-      password: newUserPassword.trim(),
+      password: newUserPassword.trim() || (existing ? existing.password : "12345678"),
       fullName: newUserFullName.trim(),
       role: newUserRole,
       assignedEventIds:
@@ -955,7 +960,9 @@ export default function AdminDashboardPage() {
       "Precio Unitario",
       "Emitido Por Usuario",
       "Estado",
-      "Hora Escaneo",
+      "Hora Ingreso",
+      "Puerta Acceso",
+      "Validado Por",
     ];
     const rows = filteredTickets.map((t) => [
       t.shortCode,
@@ -967,7 +974,9 @@ export default function AdminDashboardPage() {
       t.unitPrice ?? 10000,
       `"${t.generatedByName || "Admin"} (@${t.generatedByUsername || "admin"})"`,
       t.status,
-      t.scannedAt || "-",
+      t.scannedAt ? new Date(t.scannedAt).toLocaleString("es-AR") : "-",
+      `"${t.scannedDoor || (t.status === "USADO" ? "Puerta Principal" : "-")}"`,
+      `"${(t.scannedByName || t.scannedBy || (t.status === "USADO" ? "Control Puerta" : "-"))}${t.scannedByUsername ? ` (@${t.scannedByUsername})` : ""}"`,
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -1748,10 +1757,10 @@ export default function AdminDashboardPage() {
                       },
                       {
                         id: "usuarios_roles" as AdminTab,
-                        label: "Roles & Usuarios",
+                        label: "Usuarios & Roles",
                         count: adminUsers.length,
-                        icon: ShieldCheck,
-                        visible: isSuper,
+                        icon: Users,
+                        visible: isSuper || permissions.canManageUsers,
                       },
                       {
                         id: "configuracion" as AdminTab,
@@ -1778,10 +1787,10 @@ export default function AdminDashboardPage() {
                       },
                       {
                         id: "usuarios_roles" as AdminTab,
-                        label: "Roles & Usuarios",
+                        label: "Usuarios & Roles",
                         count: adminUsers.length,
-                        icon: ShieldCheck,
-                        visible: isSuper,
+                        icon: Users,
+                        visible: isSuper || permissions.canManageUsers,
                       },
                       {
                         id: "configuracion" as AdminTab,
@@ -2114,29 +2123,52 @@ export default function AdminDashboardPage() {
                             <ChevronRight className="w-4 h-4" />
                           </button>
 
-                          <div className="flex items-center justify-between text-[11px] text-[#8a8a8a] px-1">
+                          <div className="flex items-center justify-between text-[11px] text-[#8a8a8a] px-1 pt-1 border-t border-[#252525]">
                             <Link
                               href={`/eventos/${ev.slug}`}
                               target="_blank"
                               className="hover:text-white flex items-center gap-1"
                             >
                               <ExternalLink className="w-3 h-3" />
-                              <span>Ver página web</span>
+                              <span>Ver web</span>
                             </Link>
 
-                            {permissions.canManageEvents && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleLoadEventToEdit(ev);
-                                  setSelectedEventId(ev.id);
-                                  setActiveTab("eventos");
-                                }}
-                                className="hover:text-white underline cursor-pointer"
-                              >
-                                Editar datos
-                              </button>
-                            )}
+                            <div className="flex items-center gap-3">
+                              {permissions.canManageEvents && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleLoadEventToEdit(ev);
+                                    setSelectedEventId(ev.id);
+                                    setActiveTab("eventos");
+                                  }}
+                                  className="hover:text-white underline cursor-pointer"
+                                >
+                                  Editar
+                                </button>
+                              )}
+
+                              {(permissions.canDeleteEvents || isSuper) && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (
+                                      confirm(
+                                        `¿Estás seguro de que deseas eliminar permanentemente el evento "${ev.title}"? Esta acción borrará el evento, sus tickets y configuraciones.`
+                                      )
+                                    ) {
+                                      await deleteEvent(ev.id);
+                                      syncAll();
+                                    }
+                                  }}
+                                  className="text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Eliminar evento definitivamente"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Eliminar</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -3368,12 +3400,37 @@ export default function AdminDashboardPage() {
                   ))}
                 </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm cursor-pointer"
-                >
-                  {editingEventId ? "Guardar Cambios" : "Publicar Evento"}
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <button
+                    type="submit"
+                    className="w-full sm:flex-1 py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm cursor-pointer"
+                  >
+                    {editingEventId ? "Guardar Cambios" : "Publicar Evento"}
+                  </button>
+
+                  {editingEventId && (permissions.canDeleteEvents || isSuper) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const evToDelete = events.find((e) => e.id === editingEventId);
+                        if (
+                          confirm(
+                            `¿Estás seguro de que deseas eliminar permanentemente el evento "${evToDelete?.title || ""}"? Esta acción borrará el evento y sus configuraciones.`
+                          )
+                        ) {
+                          await deleteEvent(editingEventId);
+                          setEditingEventId(null);
+                          syncAll();
+                        }
+                      }}
+                      className="w-full sm:w-auto px-5 py-3.5 rounded-[3px] bg-red-950/80 hover:bg-red-900 border border-red-600/40 text-red-200 text-sm font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      title="Eliminar este evento"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Eliminar Evento</span>
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
 
@@ -3564,19 +3621,24 @@ export default function AdminDashboardPage() {
                           Ver
                         </Link>
 
-                        {permissions.canDeleteEvents && (
+                        {(permissions.canDeleteEvents || isSuper) && (
                           <button
                             type="button"
                             onClick={async () => {
-                              if (confirm(`¿Eliminar evento "${ev.title}"?`)) {
+                              if (
+                                confirm(
+                                  `¿Estás seguro de que deseas eliminar permanentemente el evento "${ev.title}"? Esta acción borrará el evento y sus configuraciones.`
+                                )
+                              ) {
                                 await deleteEvent(ev.id);
                                 syncAll();
                               }
                             }}
-                            className="p-1 text-white/40 hover:text-red-400 ml-auto cursor-pointer"
-                            title="Eliminar evento"
+                            className="px-2.5 py-1 rounded bg-red-950/60 hover:bg-red-900 border border-red-700/50 text-red-300 text-xs font-medium flex items-center gap-1.5 ml-auto cursor-pointer transition-colors"
+                            title="Eliminar evento permanentemente"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Eliminar</span>
                           </button>
                         )}
                       </div>
@@ -4453,7 +4515,7 @@ export default function AdminDashboardPage() {
                       <th className="py-3 px-4">Sector / Entrada</th>
                       <th className="py-3 px-4">Orden</th>
                       <th className="py-3 px-4 text-center">Estado</th>
-                      <th className="py-3 px-4 text-center">Hora Ingreso</th>
+                      <th className="py-3 px-4 text-center">Ingreso & Puerta / Operador</th>
                       <th className="py-3 px-4 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -4528,13 +4590,26 @@ export default function AdminDashboardPage() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-center text-[#8a8a8a] text-[11px] whitespace-nowrap">
+                            <td className="py-3 px-4 text-center text-xs whitespace-nowrap">
                               {t.scannedAt ? (
-                                <span className="text-[#ffb5d7]">
-                                  {formatArgentinaDateTime(t.scannedAt)}
-                                </span>
+                                <div className="space-y-0.5 inline-block text-left">
+                                  <span className="text-[#ffb5d7] font-medium block">
+                                    {formatArgentinaDateTime(t.scannedAt)}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 text-[10px]">
+                                    <span className="px-1.5 py-0.2 rounded bg-white/10 text-white font-mono">
+                                      {t.scannedDoor || "Puerta Principal"}
+                                    </span>
+                                    {(t.scannedByName || t.scannedBy) && (
+                                      <span className="text-[#8a8a8a]">
+                                        por {t.scannedByName || t.scannedBy}
+                                        {t.scannedByUsername ? ` (@${t.scannedByUsername})` : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
                               ) : (
-                                <span className="text-[#555]">-</span>
+                                <span className="text-[#555] text-[11px]">-</span>
                               )}
                             </td>
                             <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -4602,6 +4677,22 @@ export default function AdminDashboardPage() {
                       <TicketQRCard ticket={t} compact />
                       
                       {/* BARRA DE CONTROL DE ACCESO INFERIOR */}
+                      {isUsed && t.scannedAt && (
+                        <div className="px-3 py-1.5 bg-[#0e0e0e] border-t border-[#222] text-[10px] text-[#ffb5d7] flex flex-wrap items-center justify-between gap-1">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatArgentinaDateTime(t.scannedAt)}
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded bg-white/10 text-white font-mono">
+                            {t.scannedDoor || "Puerta Principal"}
+                          </span>
+                          {(t.scannedByName || t.scannedBy) && (
+                            <span className="text-[#8a8a8a]">
+                              por {t.scannedByName || t.scannedBy}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="p-3 bg-[#111] border-t border-[#2a2a2a] flex items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] text-[#8a8a8a]">Estado:</span>
@@ -4939,24 +5030,324 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* TAB SUPERADMIN: ROLES, PERMISOS Y GESTIÓN DE USUARIOS */}
-        {activeTab === "usuarios_roles" && isSuper && (
+        {/* TAB ROLES, PERMISOS Y GESTIÓN DE USUARIOS */}
+        {activeTab === "usuarios_roles" && (isSuper || permissions.canManageUsers) && (
           <div className="space-y-10">
-            {/* BANNER INFORMATIVO SUPERADMIN */}
+            {/* BANNER INFORMATIVO */}
             <div className="rounded-lg bg-gradient-to-r from-[#2a1322] via-[#1c1c1c] to-[#1c1c1c] p-6 sm:p-8 border border-[#ffb5d7]/30 space-y-3">
               <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase tracking-wider">
-                <ShieldAlert className="w-4 h-4" />
-                Área Exclusiva Superadministrador
+                <Users className="w-4 h-4" />
+                Panel de Usuarios & Control de Accesos
               </div>
               <h2 className="text-2xl sm:text-3xl font-normal text-white">
-                Roles, Permisos Granulares y Asignación de Eventos
+                Gestión de Usuarios del Sistema y Asignación de Eventos
               </h2>
               <p className="text-xs text-white/70 max-w-3xl leading-relaxed">
-                Como <strong>Superadmin</strong> tenés control absoluto sobre la plataforma: podés definir roles con permisos exactos (qué botones, pestañas y acciones puede hacer cada uno), crear usuarios y asignar a cada usuario <strong>únicamente los eventos que debe ver y gestionar</strong>. Los demás usuarios nunca verán eventos ni números ajenos.
+                Creá usuarios para tu equipo (administradores, cajeros de barra, personal de puerta o de consulta), asignales contraseñas y elegí <strong>únicamente los eventos que cada uno podrá gestionar</strong>. También podés editar datos, resetear contraseñas o eliminar usuarios cuando ya no formen parte del equipo.
               </p>
             </div>
 
-            {/* SUBSECCIÓN 1: GESTIÓN DE ROLES & PERMISOS */}
+            {/* SECCIÓN 1 (PRINCIPAL): GESTIÓN DE USUARIOS & ASIGNACIÓN DE EVENTOS */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Formulario Usuario */}
+              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
+                    <UserCheck className="w-4 h-4" />
+                    {editingUserId ? "Editar Usuario & Asignación" : "Nuevo Usuario"}
+                  </div>
+                  {editingUserId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUserId(null);
+                        setNewUserFullName("");
+                        setNewUsername("");
+                        setNewUserPassword("");
+                        setNewUserRole("ADMIN");
+                        setUserAssignedEventIds([]);
+                      }}
+                      className="text-xs text-[#8a8a8a] hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+
+                <h3 className="text-xl font-normal text-white">
+                  {editingUserId ? "Modificar Usuario" : "Crear Usuario con Eventos"}
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Asigná qué rol tendrá y qué eventos podrá ver. Si no le asignás un evento, ese usuario no podrá verlo ni operar en él.
+                </p>
+
+                {userSavedMsg && (
+                  <div className="p-3 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200">
+                    {userSavedMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateAdminUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Nombre y Apellido / Identificador *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newUserFullName}
+                      onChange={(e) => setNewUserFullName(e.target.value)}
+                      placeholder="Ej: Laura Martínez (Caja 1)"
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Usuario (Login) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="Ej: laura"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        {editingUserId ? "Nueva Clave (opcional)" : "Contraseña *"}
+                      </label>
+                      <input
+                        type="text"
+                        required={!editingUserId}
+                        value={newUserPassword}
+                        onChange={(e) => setNewUserPassword(e.target.value)}
+                        placeholder={editingUserId ? "Dejar vacío para mantener la actual" : "Clave de acceso"}
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Rol del Usuario *
+                    </label>
+                    <select
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                    >
+                      {adminRoles.map((r) => (
+                        <option key={r.id} value={r.name}>
+                          {r.label} ({r.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* ASIGNACIÓN DE EVENTOS */}
+                  <div className="pt-2 border-t border-[#353535] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-white/90">
+                        Eventos Asignados a este Usuario:
+                      </label>
+                      {newUserRole !== "SUPERADMIN" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setUserAssignedEventIds(events.map((e) => e.id))}
+                            className="text-[11px] text-[#ffb5d7] hover:underline"
+                          >
+                            Todos
+                          </button>
+                          <span className="text-[#8a8a8a] text-[11px]">·</span>
+                          <button
+                            type="button"
+                            onClick={() => setUserAssignedEventIds([])}
+                            className="text-[11px] text-[#8a8a8a] hover:underline"
+                          >
+                            Ninguno
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {newUserRole === "SUPERADMIN" ? (
+                      <div className="p-3 rounded bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200">
+                        ⭐ El <strong>Superadmin</strong> tiene acceso automático a todos los eventos presentes y futuros sin restricción.
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-2 p-3 rounded bg-[#121212] border border-[#353535]">
+                        {events.map((ev) => {
+                          const isChecked = userAssignedEventIds.includes(ev.id);
+                          return (
+                            <label
+                              key={ev.id}
+                              className="flex items-start gap-2.5 text-xs text-white/90 cursor-pointer hover:bg-white/5 p-1 rounded"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setUserAssignedEventIds((prev) => [...prev, ev.id]);
+                                  } else {
+                                    setUserAssignedEventIds((prev) =>
+                                      prev.filter((id) => id !== ev.id)
+                                    );
+                                  }
+                                }}
+                                className="mt-0.5 rounded border-[#353535]"
+                              />
+                              <div className="min-w-0">
+                                <span className="font-medium text-white block truncate">
+                                  {ev.title}
+                                </span>
+                                <span className="text-[11px] text-[#8a8a8a]">
+                                  {ev.dateLabel} · {ev.venueCity}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 flex items-center justify-center gap-2"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {editingUserId ? "Actualizar Usuario" : "Guardar Usuario con Permisos"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Listado de Usuarios */}
+              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
+                <h3 className="text-xl font-normal text-white">
+                  Usuarios Registrados ({adminUsers.length})
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Cada usuario inicia sesión con sus credenciales y sólo accede a los eventos que le asignaste.
+                </p>
+
+                <div className="space-y-3">
+                  {adminUsers.map((u) => {
+                    const isUserSuper = u.role === "SUPERADMIN" || u.username === "superadmin";
+                    const roleDef = adminRoles.find((r) => r.name === u.role);
+                    const userEvents = events.filter((e) =>
+                      (u.assignedEventIds || []).includes(e.id)
+                    );
+
+                    return (
+                      <div
+                        key={u.id}
+                        className="p-4 rounded-lg bg-[#121212] border border-[#353535] space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-white">
+                                {u.fullName}
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
+                                {roleDef?.label || u.role}
+                              </span>
+                              {isUserSuper && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 font-medium">
+                                  SUPERADMIN
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#8a8a8a] font-mono">
+                              Usuario: <strong className="text-white">@{u.username}</strong> · Clave:{" "}
+                              <strong className="text-[#ffb5d7]">••••••••</strong>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingUserId(u.id);
+                                setNewUserFullName(u.fullName);
+                                setNewUsername(u.username);
+                                setNewUserPassword("");
+                                setNewUserRole(u.role);
+                                setUserAssignedEventIds(u.assignedEventIds || []);
+                                window.scrollTo({ top: 400, behavior: "smooth" });
+                              }}
+                              className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
+                            >
+                              Editar & Eventos
+                            </button>
+                            {!isUserSuper && u.username !== currentUser?.username && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario @${u.username} (${u.fullName})? Ya no podrá ingresar al sistema.`)) {
+                                    deleteAdminUser(u.id);
+                                    syncAll();
+                                  }
+                                }}
+                                className="p-1.5 rounded bg-red-950/40 hover:bg-red-900 border border-red-700/40 text-red-300 hover:text-white cursor-pointer transition-colors"
+                                title="Eliminar usuario definitivamente"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Eventos asignados */}
+                        <div className="pt-2 border-t border-[#353535]/60 text-xs">
+                          <span className="text-[#8a8a8a] text-[11px] block mb-1">
+                            Eventos con permiso de visualización:
+                          </span>
+                          {isUserSuper ? (
+                            <span className="text-purple-300 text-xs">
+                              ✓ Todos los eventos de la plataforma (Superadmin)
+                            </span>
+                          ) : userEvents.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {userEvents.map((ev) => (
+                                <span
+                                  key={ev.id}
+                                  className="px-2 py-0.5 rounded bg-[#1c1c1c] border border-[#353535] text-[11px] text-white/90"
+                                >
+                                  {ev.title}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-amber-400/90 text-xs italic">
+                              ⚠ Sin eventos asignados (no verá ningún evento en su panel)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN 2 (SECUNDARIA): DEFINICIÓN DE ROLES & PLANTILLAS DE PERMISOS */}
+            <div className="pt-8 border-t border-[#353535]/80 space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-xl font-normal text-white flex items-center gap-2">
+                  <SlidersHorizontal className="w-5 h-5 text-[#ffb5d7]" />
+                  Definición de Roles & Plantillas de Permisos
+                </h3>
+                <p className="text-xs text-[#8a8a8a]">
+                  Configurá qué botones, módulos y funciones puede realizar cada rol de usuario dentro del sistema.
+                </p>
+              </div>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Formulario Rol */}
               <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
@@ -4979,6 +5370,7 @@ export default function AdminDashboardPage() {
                           canIssueManualQR: false,
                           canManageEvents: false,
                           canDeleteEvents: false,
+                          canManageUsers: false,
                           canViewAnalytics: false,
                           canViewTickets: false,
                           canViewRendicion: false,
@@ -5135,6 +5527,27 @@ export default function AdminDashboardPage() {
                           className="rounded border-[#353535]"
                         />
                         <span>Eliminar eventos definitivamente</span>
+                      </label>
+                    </div>
+
+                    {/* Bloque: Usuarios & Seguridad */}
+                    <div className="p-3 rounded bg-[#121212] border border-[#353535] space-y-2">
+                      <span className="text-[11px] text-[#ffb5d7] font-medium block">
+                        Usuarios & Seguridad
+                      </span>
+                      <label className="flex items-center gap-2 text-xs text-white/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={roleFormPermissions.canManageUsers}
+                          onChange={(e) =>
+                            setRoleFormPermissions((p) => ({
+                              ...p,
+                              canManageUsers: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[#353535]"
+                        />
+                        <span>Ver, crear, editar y eliminar usuarios del sistema</span>
                       </label>
                     </div>
 
@@ -5365,6 +5778,16 @@ export default function AdminDashboardPage() {
                             Gestionar Eventos
                           </span>
                         )}
+                        {r.permissions.canDeleteEvents && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 text-red-300 border border-red-800/40">
+                            Eliminar Eventos
+                          </span>
+                        )}
+                        {r.permissions.canManageUsers && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+                            Gestión Usuarios
+                          </span>
+                        )}
                         {r.permissions.canViewAnalytics && (
                           <span className="text-[10px] px-2 py-0.5 rounded bg-[#1c1c1c] text-white/80 border border-[#353535]">
                             Visitas Web
@@ -5391,295 +5814,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
-
-            {/* SUBSECCIÓN 2: GESTIÓN DE USUARIOS & ASIGNACIÓN DE EVENTOS */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Formulario Usuario */}
-              <div className="lg:col-span-5 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[#ffb5d7] text-xs uppercase">
-                    <UserCheck className="w-4 h-4" />
-                    {editingUserId ? "Editar Usuario & Asignación" : "Nuevo Usuario"}
-                  </div>
-                  {editingUserId && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingUserId(null);
-                        setNewUserFullName("");
-                        setNewUsername("");
-                        setNewUserPassword("");
-                        setNewUserRole("ADMIN");
-                        setUserAssignedEventIds([]);
-                      }}
-                      className="text-xs text-[#8a8a8a] hover:text-white"
-                    >
-                      Cancelar
-                    </button>
-                  )}
-                </div>
-
-                <h3 className="text-xl font-normal text-white">
-                  {editingUserId ? "Modificar Usuario" : "Crear Usuario con Eventos"}
-                </h3>
-                <p className="text-xs text-[#8a8a8a]">
-                  Asigná qué rol tendrá y qué eventos podrá ver. Si no le asignás un evento, ese usuario no podrá verlo ni operar en él.
-                </p>
-
-                {userSavedMsg && (
-                  <div className="p-3 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200">
-                    {userSavedMsg}
-                  </div>
-                )}
-
-                <form onSubmit={handleCreateAdminUser} className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Nombre y Apellido / Identificador *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newUserFullName}
-                      onChange={(e) => setNewUserFullName(e.target.value)}
-                      placeholder="Ej: Laura Martínez (Caja 1)"
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block text-xs text-[#8a8a8a] mb-1">
-                        Usuario (Login) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newUsername}
-                        onChange={(e) => setNewUsername(e.target.value)}
-                        placeholder="Ej: laura"
-                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-[#8a8a8a] mb-1">
-                        Contraseña *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newUserPassword}
-                        onChange={(e) => setNewUserPassword(e.target.value)}
-                        placeholder="Clave de acceso"
-                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Rol del Usuario *
-                    </label>
-                    <select
-                      value={newUserRole}
-                      onChange={(e) => setNewUserRole(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    >
-                      {adminRoles.map((r) => (
-                        <option key={r.id} value={r.name}>
-                          {r.label} ({r.name})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* ASIGNACIÓN DE EVENTOS */}
-                  <div className="pt-2 border-t border-[#353535] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-medium text-white/90">
-                        Eventos Asignados a este Usuario:
-                      </label>
-                      {newUserRole !== "SUPERADMIN" && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setUserAssignedEventIds(events.map((e) => e.id))}
-                            className="text-[11px] text-[#ffb5d7] hover:underline"
-                          >
-                            Todos
-                          </button>
-                          <span className="text-[#8a8a8a] text-[11px]">·</span>
-                          <button
-                            type="button"
-                            onClick={() => setUserAssignedEventIds([])}
-                            className="text-[11px] text-[#8a8a8a] hover:underline"
-                          >
-                            Ninguno
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {newUserRole === "SUPERADMIN" ? (
-                      <div className="p-3 rounded bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200">
-                        ⭐ El <strong>Superadmin</strong> tiene acceso automático a todos los eventos presentes y futuros sin restricción.
-                      </div>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto space-y-2 p-3 rounded bg-[#121212] border border-[#353535]">
-                        {events.map((ev) => {
-                          const isChecked = userAssignedEventIds.includes(ev.id);
-                          return (
-                            <label
-                              key={ev.id}
-                              className="flex items-start gap-2.5 text-xs text-white/90 cursor-pointer hover:bg-white/5 p-1 rounded"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setUserAssignedEventIds((prev) => [...prev, ev.id]);
-                                  } else {
-                                    setUserAssignedEventIds((prev) =>
-                                      prev.filter((id) => id !== ev.id)
-                                    );
-                                  }
-                                }}
-                                className="mt-0.5 rounded border-[#353535]"
-                              />
-                              <div className="min-w-0">
-                                <span className="font-medium text-white block truncate">
-                                  {ev.title}
-                                </span>
-                                <span className="text-[11px] text-[#8a8a8a]">
-                                  {ev.dateLabel} · {ev.venueCity}
-                                </span>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 flex items-center justify-center gap-2"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    {editingUserId ? "Actualizar Usuario" : "Guardar Usuario con Permisos"}
-                  </button>
-                </form>
-              </div>
-
-              {/* Listado de Usuarios */}
-              <div className="lg:col-span-7 rounded-lg bg-[#1c1c1c] p-6 sm:p-8 space-y-4">
-                <h3 className="text-xl font-normal text-white">
-                  Usuarios Registrados ({adminUsers.length})
-                </h3>
-                <p className="text-xs text-[#8a8a8a]">
-                  Cada usuario inicia sesión con sus credenciales y sólo accede a los eventos que le asignaste.
-                </p>
-
-                <div className="space-y-3">
-                  {adminUsers.map((u) => {
-                    const isUserSuper = u.role === "SUPERADMIN" || u.username === "superadmin";
-                    const roleDef = adminRoles.find((r) => r.name === u.role);
-                    const userEvents = events.filter((e) =>
-                      (u.assignedEventIds || []).includes(e.id)
-                    );
-
-                    return (
-                      <div
-                        key={u.id}
-                        className="p-4 rounded-lg bg-[#121212] border border-[#353535] space-y-3"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-white">
-                                {u.fullName}
-                              </span>
-                              <span className="px-2 py-0.5 rounded bg-[#353535] text-[10px] text-[#ffb5d7] font-mono">
-                                {roleDef?.label || u.role}
-                              </span>
-                              {isUserSuper && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 font-medium">
-                                  SUPERADMIN
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-[#8a8a8a] font-mono">
-                              Usuario: <strong className="text-white">@{u.username}</strong> · Clave:{" "}
-                              <strong className="text-[#ffb5d7]">••••••••</strong>
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingUserId(u.id);
-                                setNewUserFullName(u.fullName);
-                                setNewUsername(u.username);
-                                setNewUserPassword("");
-                                setNewUserRole(u.role);
-                                setUserAssignedEventIds(u.assignedEventIds || []);
-                                window.scrollTo({ top: 400, behavior: "smooth" });
-                              }}
-                              className="px-3 py-1.5 rounded bg-[#353535] text-xs text-white hover:bg-[#454545] cursor-pointer"
-                            >
-                              Editar & Eventos
-                            </button>
-                            {!isUserSuper && u.username !== currentUser?.username && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (confirm(`¿Eliminar al usuario @${u.username}?`)) {
-                                    deleteAdminUser(u.id);
-                                    syncAll();
-                                  }
-                                }}
-                                className="p-1.5 text-white/40 hover:text-red-400 cursor-pointer"
-                                title="Eliminar usuario"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Eventos asignados */}
-                        <div className="pt-2 border-t border-[#353535]/60 text-xs">
-                          <span className="text-[#8a8a8a] text-[11px] block mb-1">
-                            Eventos con permiso de visualización:
-                          </span>
-                          {isUserSuper ? (
-                            <span className="text-purple-300 text-xs">
-                              ✓ Todos los eventos de la plataforma (Superadmin)
-                            </span>
-                          ) : userEvents.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {userEvents.map((ev) => (
-                                <span
-                                  key={ev.id}
-                                  className="px-2 py-0.5 rounded bg-[#1c1c1c] border border-[#353535] text-[11px] text-white/90"
-                                >
-                                  {ev.title}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-amber-400/90 text-xs italic">
-                              ⚠ Sin eventos asignados (no verá ningún evento en su panel)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
           </div>
         )}

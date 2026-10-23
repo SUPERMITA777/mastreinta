@@ -47,6 +47,7 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
       canIssueManualQR: true,
       canManageEvents: true,
       canDeleteEvents: true,
+      canManageUsers: true,
       canViewAnalytics: true,
       canViewTickets: true,
       canViewRendicion: true,
@@ -62,14 +63,15 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
     name: "ADMIN",
     label: "Administrador de Eventos Asignados",
     description:
-      "Solo ve y administra los eventos que tiene asignados o que haya creado. No puede gestionar usuarios ni roles.",
+      "Administra los eventos asignados o creados, gestiona accesos, pedidos y usuarios operadores.",
     isSystem: true,
     permissions: {
       canViewOrders: true,
       canApproveOrders: true,
       canIssueManualQR: true,
       canManageEvents: true,
-      canDeleteEvents: false,
+      canDeleteEvents: true,
+      canManageUsers: true,
       canViewAnalytics: true,
       canViewTickets: true,
       canViewRendicion: true,
@@ -93,6 +95,7 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
       canIssueManualQR: true,
       canManageEvents: false,
       canDeleteEvents: false,
+      canManageUsers: false,
       canViewAnalytics: false,
       canViewTickets: true,
       canViewRendicion: true,
@@ -116,6 +119,7 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
       canIssueManualQR: true,
       canManageEvents: false,
       canDeleteEvents: false,
+      canManageUsers: false,
       canViewAnalytics: true,
       canViewTickets: false,
       canViewRendicion: true,
@@ -139,6 +143,7 @@ export const INITIAL_ADMIN_ROLES: AdminRoleDefinition[] = [
       canIssueManualQR: false,
       canManageEvents: false,
       canDeleteEvents: false,
+      canManageUsers: false,
       canViewAnalytics: false,
       canViewTickets: false,
       canViewRendicion: false,
@@ -1653,7 +1658,9 @@ export interface ScanValidationResult {
 
 export async function validateAndScanQR(
   rawInput: string,
-  operatorName = "Puerta Principal MAS30"
+  operatorName = "Puerta Principal MAS30",
+  doorName = "Puerta Principal",
+  operatorUsername?: string
 ): Promise<ScanValidationResult> {
   const clean = rawInput.trim().toUpperCase();
   const tickets = getTickets();
@@ -1714,6 +1721,9 @@ export async function validateAndScanQR(
     status: "USADO",
     scannedAt: nowIso,
     scannedBy: operatorName,
+    scannedByName: operatorName,
+    scannedByUsername: operatorUsername,
+    scannedDoor: doorName,
   };
 
   const updatedList = tickets.map((t) =>
@@ -1730,6 +1740,7 @@ export async function validateAndScanQR(
           status: "USADO",
           scanned_at: nowIso,
           scanned_by: operatorName,
+          scanned_door: doorName,
         })
         .eq("id", match.id);
     } catch {
@@ -1746,7 +1757,10 @@ export async function validateAndScanQR(
 
 export async function updateTicketStatus(
   ticketId: string,
-  newStatus: "VALIDO" | "USADO" | "BLOQUEADO" | "ANULADO"
+  newStatus: "VALIDO" | "USADO" | "BLOQUEADO" | "ANULADO",
+  operatorName = "Administración MAS30",
+  doorName = "Panel Admin",
+  operatorUsername?: string
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const updated = getTickets().map((t) => {
@@ -1757,6 +1771,9 @@ export async function updateTicketStatus(
         status: "VALIDO" as const,
         scannedAt: undefined,
         scannedBy: undefined,
+        scannedByName: undefined,
+        scannedByUsername: undefined,
+        scannedDoor: undefined,
       };
     }
     if (newStatus === "USADO") {
@@ -1764,7 +1781,10 @@ export async function updateTicketStatus(
         ...t,
         status: "USADO" as const,
         scannedAt: t.scannedAt || nowIso,
-        scannedBy: t.scannedBy || "Administración MAS30",
+        scannedBy: t.scannedBy || operatorName,
+        scannedByName: t.scannedByName || operatorName,
+        scannedByUsername: t.scannedByUsername || operatorUsername,
+        scannedDoor: t.scannedDoor || doorName,
       };
     }
     return {
@@ -2125,6 +2145,7 @@ export function getUserPermissions(
     canIssueManualQR: false,
     canManageEvents: false,
     canDeleteEvents: false,
+    canManageUsers: false,
     canViewAnalytics: false,
     canViewTickets: false,
     canViewRendicion: false,
