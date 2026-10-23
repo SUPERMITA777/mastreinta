@@ -212,8 +212,7 @@ export async function POST(req: Request) {
       const isTestAccount =
         account.id.includes("test") ||
         account.accessToken.startsWith("TEST-") ||
-        Boolean(account.email?.includes("testuser")) ||
-        siteUrl.includes("localhost");
+        Boolean(account.email?.includes("testuser"));
 
       const initPoint =
         isTestAccount && pref.sandbox_init_point
