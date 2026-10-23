@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   Check,
   Copy,
+  CreditCard,
   ExternalLink,
   Info,
   Instagram,
@@ -15,7 +16,9 @@ import {
   QrCode,
   Send,
   Share2,
+  ShieldCheck,
   Users,
+  Wallet,
   X,
 } from "lucide-react";
 import {
@@ -68,6 +71,9 @@ export default function EventDetailPage() {
   const [copiedCbu, setCopiedCbu] = useState(false);
   const [sharedCopied, setSharedCopied] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"mercadopago" | "transfer">("mercadopago");
+  const [payingMp, setPayingMp] = useState(false);
+  const [mpError, setMpError] = useState<string | null>(null);
 
   // Preguntas sobre el Evento
   const [qName, setQName] = useState("");
@@ -85,6 +91,11 @@ export default function EventDetailPage() {
       }
       setBank(getBankSettings());
       if (found) {
+        if (found.paymentAccountId) {
+          setPaymentMethod("mercadopago");
+        } else {
+          setPaymentMethod("transfer");
+        }
         const allInq = getInquiries();
         setQuestions(
           allInq.filter(
@@ -203,6 +214,53 @@ export default function EventDetailPage() {
   const organizerWhatsappHref = `https://wa.me/${(
     event.organizerWhatsapp || bank.whatsappSupport
   ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+
+  const handleMercadoPagoCheckout = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setMpError(null);
+    if (!buyerName.trim()) {
+      setMpError("Por favor completá tu Nombre y Apellido.");
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      setMpError("Por favor completá tu número de WhatsApp.");
+      return;
+    }
+    if (!buyerEmail.trim() || !/^\S+@\S+\.\S+$/.test(buyerEmail.trim())) {
+      setMpError("Por favor ingresá un Email válido para enviarte las entradas y el código QR.");
+      return;
+    }
+
+    setPayingMp(true);
+    try {
+      const res = await fetch("/api/mp/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: event.id,
+          tierId: selectedSpot ? undefined : (selectedTier?.id || event.ticketTiers[0]?.id),
+          spotId: selectedSpot ? selectedSpot.id : undefined,
+          quantity: selectedSpot ? 1 : quantity,
+          buyerName: buyerName.trim(),
+          buyerEmail: buyerEmail.trim().toLowerCase(),
+          buyerPhone: buyerPhone.trim(),
+          attendees,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.initPoint) {
+        throw new Error(data.error || "No se pudo iniciar el pago con Mercado Pago.");
+      }
+
+      // Redirigir al Checkout de Mercado Pago
+      window.location.href = data.initPoint;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error iniciando el pago";
+      setMpError(msg);
+      setPayingMp(false);
+    }
+  };
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -588,85 +646,148 @@ export default function EventDetailPage() {
                 </>
               )}
 
-              {/* 3. Datos Bancarios */}
-              <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3">
+              {/* 3. Selección de Método de Pago y Total */}
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase text-[#8a8a8a]">
-                    3. Datos para Transferir
+                    3. Método de Pago
                   </span>
                   <span className="text-lg font-medium text-[#ffb5d7]">
                     Total: {formatARS(totalAmount)}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                  <div className="p-3 rounded bg-[#1c1c1c] flex items-center justify-between">
-                    <div>
-                      <span className="text-[#8a8a8a] block text-[10px] uppercase">
-                        Alias
-                      </span>
-                      <strong className="font-mono text-white">
-                        {bank.alias}
-                      </strong>
-                    </div>
+                {event.paymentAccountId ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(bank.alias);
-                        setCopiedAlias(true);
-                        setTimeout(() => setCopiedAlias(false), 2000);
-                      }}
-                      className="px-2.5 py-1 rounded-sm bg-white text-black font-medium text-[11px] flex items-center gap-1 cursor-pointer"
+                      onClick={() => setPaymentMethod("mercadopago")}
+                      className={`p-3 rounded-lg border text-left transition-all flex flex-col gap-1 cursor-pointer ${
+                        paymentMethod === "mercadopago"
+                          ? "bg-[#009ee3]/15 border-[#009ee3] text-white shadow-md shadow-sky-950/40 ring-1 ring-[#009ee3]/50"
+                          : "bg-[#121212] border-[#2a2a2a] text-white/60 hover:bg-[#1a1a1a]"
+                      }`}
                     >
-                      {copiedAlias ? (
-                        <>
-                          <Check className="w-3 h-3" /> Copiado
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" /> Copiar
-                        </>
-                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-bold text-xs text-[#00b2f6]">
+                          <CreditCard className="w-4 h-4" />
+                          Mercado Pago
+                        </span>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#009ee3]/30 text-[#60cdff]">
+                          Automático
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-white/80 leading-tight">
+                        Tarjetas, Débito o Saldo · QR Inmediato
+                      </span>
                     </button>
-                  </div>
 
-                  <div className="p-3 rounded bg-[#1c1c1c] flex items-center justify-between">
-                    <div>
-                      <span className="text-[#8a8a8a] block text-[10px] uppercase">
-                        CBU / CVU
-                      </span>
-                      <strong className="font-mono text-white text-[11px]">
-                        {bank.cbu}
-                      </strong>
-                    </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(bank.cbu);
-                        setCopiedCbu(true);
-                        setTimeout(() => setCopiedCbu(false), 2000);
-                      }}
-                      className="px-2.5 py-1 rounded-sm bg-[#353535] text-white font-medium text-[11px] flex items-center gap-1 cursor-pointer"
+                      onClick={() => setPaymentMethod("transfer")}
+                      className={`p-3 rounded-lg border text-left transition-all flex flex-col gap-1 cursor-pointer ${
+                        paymentMethod === "transfer"
+                          ? "bg-soft-pink/15 border-soft-pink text-white shadow-md ring-1 ring-soft-pink/50"
+                          : "bg-[#121212] border-[#2a2a2a] text-white/60 hover:bg-[#1a1a1a]"
+                      }`}
                     >
-                      {copiedCbu ? (
-                        <>
-                          <Check className="w-3 h-3" /> Copiado
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" /> Copiar
-                        </>
-                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-bold text-xs text-soft-pink">
+                          <Wallet className="w-4 h-4" />
+                          Transferencia
+                        </span>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-white/10 text-white/70">
+                          Manual
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-white/80 leading-tight">
+                        Alias / CBU + Comprobante WhatsApp
+                      </span>
                     </button>
                   </div>
-                </div>
-                <p className="text-[11px] text-[#8a8a8a]">
-                  Titular: {bank.accountHolder} · {bank.bankName}
-                </p>
+                ) : null}
+
+                {/* Si elige Transferencia (o el evento no tiene MP configurado), mostramos datos bancarios */}
+                {(paymentMethod === "transfer" || !event.paymentAccountId) && (
+                  <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3">
+                    <span className="text-xs uppercase text-[#8a8a8a] block">
+                      Datos para Transferir
+                    </span>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                      <div className="p-3 rounded bg-[#1c1c1c] flex items-center justify-between">
+                        <div>
+                          <span className="text-[#8a8a8a] block text-[10px] uppercase">
+                            Alias
+                          </span>
+                          <strong className="font-mono text-white">
+                            {bank.alias}
+                          </strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(bank.alias);
+                            setCopiedAlias(true);
+                            setTimeout(() => setCopiedAlias(false), 2000);
+                          }}
+                          className="px-2.5 py-1 rounded-sm bg-white text-black font-medium text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedAlias ? (
+                            <>
+                              <Check className="w-3 h-3" /> Copiado
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" /> Copiar
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="p-3 rounded bg-[#1c1c1c] flex items-center justify-between">
+                        <div>
+                          <span className="text-[#8a8a8a] block text-[10px] uppercase">
+                            CBU / CVU
+                          </span>
+                          <strong className="font-mono text-white text-[11px]">
+                            {bank.cbu}
+                          </strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(bank.cbu);
+                            setCopiedCbu(true);
+                            setTimeout(() => setCopiedCbu(false), 2000);
+                          }}
+                          className="px-2.5 py-1 rounded-sm bg-[#353535] text-white font-medium text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedCbu ? (
+                            <>
+                              <Check className="w-3 h-3" /> Copiado
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" /> Copiar
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-[#8a8a8a]">
+                      Titular: {bank.accountHolder} · {bank.bankName}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* 4. Formulario del Comprador */}
-              <form onSubmit={handleOrderSubmit} className="space-y-3.5">
+              <form onSubmit={paymentMethod === "mercadopago" && event.paymentAccountId ? handleMercadoPagoCheckout : handleOrderSubmit} className="space-y-3.5">
+                <span className="text-xs uppercase text-[#8a8a8a] block">
+                  4. Tus Datos para los Tickets
+                </span>
+
                 <input
                   type="text"
                   required
@@ -725,37 +846,71 @@ export default function EventDetailPage() {
                   className="w-full px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white placeholder:text-[#8a8a8a]"
                 />
 
-                <a
-                  href={organizerWhatsappHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => {
-                    trackVisit("whatsapp_click", event.id);
-                    if (buyerName.trim()) {
-                      createTransferOrder({
-                        event,
-                        tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
-                        quantity: selectedSpot ? 1 : quantity,
-                        buyerName,
-                        buyerDni: "",
-                        buyerEmail,
-                        buyerPhone,
-                        transferSender: buyerName,
-                        transferReference: "Transferencia / WhatsApp",
-                        notes,
-                        attendees,
-                        spotId: selectedSpot?.id,
-                        spotName: selectedSpot?.name,
-                        spotPerks: selectedSpot?.perks,
-                        sectorName: selectedSpot?.sectorName,
-                      }).catch(() => {});
-                    }
-                  }}
-                  className="w-full py-3.5 px-4 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
-                  Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
-                </a>
+                {mpError && (
+                  <div className="p-3 rounded-md bg-red-950/80 border border-red-500/40 text-red-200 text-xs">
+                    ⚠️ {mpError}
+                  </div>
+                )}
+
+                {/* BOTÓN MERCADO PAGO */}
+                {event.paymentAccountId && paymentMethod === "mercadopago" ? (
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={payingMp}
+                      className="w-full py-4 px-4 rounded-xl bg-gradient-to-r from-[#009ee3] to-[#00b2f6] hover:brightness-110 active:scale-[0.99] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-lg shadow-sky-950/50 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {payingMp ? (
+                        <>
+                          <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Conectando con Mercado Pago...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="w-5 h-5" />
+                          <span>Pagar con Mercado Pago · {formatARS(totalAmount)}</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[11px] text-center text-white/50 flex items-center justify-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      Pago procesado por Mercado Pago · Emisión instantánea de QR
+                    </p>
+                  </div>
+                ) : (
+                  /* BOTÓN WHATSAPP / TRANSFERENCIA */
+                  <a
+                    href={organizerWhatsappHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      trackVisit("whatsapp_click", event.id);
+                      if (buyerName.trim()) {
+                        createTransferOrder({
+                          event,
+                          tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
+                          quantity: selectedSpot ? 1 : quantity,
+                          buyerName,
+                          buyerDni: "",
+                          buyerEmail,
+                          buyerPhone,
+                          transferSender: buyerName,
+                          transferReference: "Transferencia / WhatsApp",
+                          notes,
+                          attendees,
+                          spotId: selectedSpot?.id,
+                          spotName: selectedSpot?.name,
+                          spotPerks: selectedSpot?.perks,
+                          sectorName: selectedSpot?.sectorName,
+                        }).catch(() => {});
+                      }
+                    }}
+                    className="w-full py-3.5 px-4 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
+                    Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
+                  </a>
+                )}
 
                 <button
                   type="submit"
