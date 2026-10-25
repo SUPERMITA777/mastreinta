@@ -149,6 +149,7 @@ export interface AdminUser {
   id: string;
   username: string;
   password: string;
+  email?: string;
   fullName: string;
   role: string;
   assignedEventIds?: string[];
@@ -228,6 +229,7 @@ export interface TicketQR {
   holderName: string;
   holderDni: string;
   buyerPhone: string;
+  buyerEmail?: string;
   ticketNumber: number;
   totalInOrder: number;
   unitPrice?: number;

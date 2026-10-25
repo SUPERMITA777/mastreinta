@@ -1250,6 +1250,7 @@ export async function approveOrderAndGenerateQRs(
         holderName: attendee.name,
         holderDni: attendee.dni,
         buyerPhone: target.buyerPhone,
+        buyerEmail: target.buyerEmail,
         ticketNumber,
         totalInOrder: totalQRsToGenerate,
         unitPrice: Math.round(target.totalAmount / totalQRsToGenerate),
@@ -1325,7 +1326,7 @@ export async function createManualAdminAccess(
     quantity: input.quantity,
     buyerName: input.holderName,
     buyerDni: input.holderDni,
-    buyerEmail: input.buyerEmail || "cortesia@mas30.com",
+    buyerEmail: input.buyerEmail?.trim() || (input.isCourtesy ? "cortesia@mas30.com" : "manual@mas30.com"),
     buyerPhone: input.buyerPhone,
     transferSender: input.isCourtesy
       ? `CORTESÍA (${currentAdmin.fullName})`

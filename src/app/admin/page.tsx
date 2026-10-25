@@ -69,6 +69,7 @@ import {
   getOrders,
   getTickets,
   getUserPermissions,
+  saveOrders,
   INITIAL_ADMIN_ROLES,
   INITIAL_ADMIN_USERS,
   INITIAL_ANALYTICS,
@@ -188,6 +189,7 @@ export default function AdminDashboardPage() {
   const [newUserFullName, setNewUserFullName] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<string>("ADMIN");
   const [userAssignedEventIds, setUserAssignedEventIds] = useState<string[]>([]);
   const [userSavedMsg, setUserSavedMsg] = useState("");
@@ -232,6 +234,8 @@ export default function AdminDashboardPage() {
   const [manualName, setManualName] = useState("");
   const [manualDni, setManualDni] = useState("");
   const [manualPhone, setManualPhone] = useState("");
+  const [manualEmail, setManualEmail] = useState("");
+  const [manualSendEmail, setManualSendEmail] = useState(true);
   const [manualQty, setManualQty] = useState(2);
   const [manualIsCourtesy, setManualIsCourtesy] = useState(true);
 
@@ -497,17 +501,35 @@ export default function AdminDashboardPage() {
 
   const handleSendOrderEmail = async (
     order: OrderItem,
-    orderTickets: TicketQR[]
+    orderTickets: TicketQR[],
+    overrideEmail?: string
   ) => {
-    if (!order.buyerEmail || order.buyerEmail === "cortesia@mas30.com") {
-      setEmailStatusByOrder((prev) => ({
-        ...prev,
-        [order.orderCode]: {
-          ok: false,
-          msg: "Esta orden no tiene un email de comprador válido.",
-        },
-      }));
-      return;
+    let targetEmail = (overrideEmail || order.buyerEmail || "").trim();
+    if (!targetEmail || targetEmail === "cortesia@mas30.com" || targetEmail === "manual@mas30.com") {
+      const prompted =
+        typeof window !== "undefined"
+          ? window.prompt(
+              `Ingresá el email para enviar los accesos de la orden ${order.orderCode}:`,
+              order.buyerEmail && !order.buyerEmail.endsWith("@mas30.com") ? order.buyerEmail : ""
+            )
+          : null;
+      if (!prompted || !prompted.trim()) {
+        setEmailStatusByOrder((prev) => ({
+          ...prev,
+          [order.orderCode]: {
+            ok: false,
+            msg: "No se especificó un email válido para el envío.",
+          },
+        }));
+        return;
+      }
+      targetEmail = prompted.trim();
+      order.buyerEmail = targetEmail;
+      const allOrders = getOrders().map((o) =>
+        o.id === order.id ? { ...o, buyerEmail: targetEmail } : o
+      );
+      saveOrders(allOrders);
+      syncAll();
     }
 
     const orderEvent = events.find((ev) => ev.id === order.eventId);
@@ -516,7 +538,7 @@ export default function AdminDashboardPage() {
       ...prev,
       [order.orderCode]: {
         ok: true,
-        msg: "Enviando email con Flyer + QRs...",
+        msg: `Enviando email con Flyer + QRs a ${targetEmail}...`,
       },
     }));
 
@@ -527,7 +549,7 @@ export default function AdminDashboardPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          toEmail: order.buyerEmail,
+          toEmail: targetEmail,
           buyerName: order.buyerName,
           orderCode: order.orderCode,
           eventId: order.eventId,
@@ -602,13 +624,16 @@ export default function AdminDashboardPage() {
   const handleCreateManualAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualName.trim()) return;
-    const { order } = await createManualAdminAccess(
+    const emailToSend = manualEmail.trim();
+    const shouldSendEmail = manualSendEmail && !!emailToSend;
+    const { order, tickets } = await createManualAdminAccess(
       {
         eventId: manualEventId,
         tierId: manualTierId,
         holderName: manualName,
         holderDni: manualDni,
         buyerPhone: manualPhone || "+5491100000000",
+        buyerEmail: emailToSend || undefined,
         quantity: manualQty,
         isCourtesy: manualIsCourtesy,
       },
@@ -621,7 +646,12 @@ export default function AdminDashboardPage() {
     setManualName("");
     setManualDni("");
     setManualPhone("");
+    setManualEmail("");
     setExpandedOrderCode(order.orderCode);
+
+    if (shouldSendEmail) {
+      await handleSendOrderEmail(order, tickets, emailToSend);
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -694,6 +724,7 @@ export default function AdminDashboardPage() {
       username: cleanUsername,
       password: newUserPassword.trim() || (existing ? existing.password : "12345678"),
       fullName: newUserFullName.trim(),
+      email: newUserEmail.trim() || undefined,
       role: newUserRole,
       assignedEventIds:
         newUserRole === "SUPERADMIN"
@@ -708,6 +739,7 @@ export default function AdminDashboardPage() {
     setNewUserFullName("");
     setNewUsername("");
     setNewUserPassword("");
+    setNewUserEmail("");
     setNewUserRole("ADMIN");
     setUserAssignedEventIds([]);
     setUserSavedMsg(
@@ -955,6 +987,8 @@ export default function AdminDashboardPage() {
       "Sector",
       "Nombre Asistente",
       "DNI",
+      "Email",
+      "Telefono",
       "Precio Unitario",
       "Emitido Por Usuario",
       "Estado",
@@ -969,6 +1003,8 @@ export default function AdminDashboardPage() {
       `"${t.tierName}"`,
       `"${t.holderName}"`,
       t.holderDni,
+      `"${t.buyerEmail || "-"}"`,
+      `"${t.buyerPhone || "-"}"`,
       t.unitPrice ?? 10000,
       `"${t.generatedByName || "Admin"} (@${t.generatedByUsername || "admin"})"`,
       t.status,
@@ -4552,11 +4588,14 @@ export default function AdminDashboardPage() {
                               <span className="font-semibold text-white block text-sm">
                                 {t.holderName}
                               </span>
-                              {t.buyerPhone && (
-                                <span className="text-[11px] text-[#8a8a8a] block">
-                                  Tel: {t.buyerPhone}
-                                </span>
-                              )}
+                              <div className="flex flex-col text-[11px] text-[#8a8a8a]">
+                                {t.buyerPhone && (
+                                  <span>Tel: {t.buyerPhone}</span>
+                                )}
+                                {t.buyerEmail && !t.buyerEmail.endsWith("@mas30.com") && (
+                                  <span>Email: {t.buyerEmail}</span>
+                                )}
+                              </div>
                             </td>
                             <td className="py-3 px-4 font-mono text-white/90">
                               {t.holderDni || "-"}
@@ -5064,6 +5103,7 @@ export default function AdminDashboardPage() {
                         setNewUserFullName("");
                         setNewUsername("");
                         setNewUserPassword("");
+                        setNewUserEmail("");
                         setNewUserRole("ADMIN");
                         setUserAssignedEventIds([]);
                       }}
@@ -5131,21 +5171,35 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Rol del Usuario *
-                    </label>
-                    <select
-                      value={newUserRole}
-                      onChange={(e) => setNewUserRole(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    >
-                      {adminRoles.map((r) => (
-                        <option key={r.id} value={r.name}>
-                          {r.label} ({r.name})
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Rol del Usuario *
+                      </label>
+                      <select
+                        value={newUserRole}
+                        onChange={(e) => setNewUserRole(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      >
+                        {adminRoles.map((r) => (
+                          <option key={r.id} value={r.name}>
+                            {r.label} ({r.name})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#8a8a8a] mb-1">
+                        Email del Operador (opcional)
+                      </label>
+                      <input
+                        type="email"
+                        value={newUserEmail}
+                        onChange={(e) => setNewUserEmail(e.target.value)}
+                        placeholder="Ej: operador@mastreinta.com"
+                        className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                      />
+                    </div>
                   </div>
 
                   {/* ASIGNACIÓN DE EVENTOS */}
@@ -5265,12 +5319,24 @@ export default function AdminDashboardPage() {
                               )}
                             </div>
                             <p className="text-xs text-[#8a8a8a] font-mono">
-                              Usuario: <strong className="text-white">@{u.username}</strong> · Clave:{" "}
-                              <strong className="text-[#ffb5d7]">••••••••</strong>
+                              Usuario: <strong className="text-white">@{u.username}</strong>
+                              {u.email && (
+                                <> · Email: <strong className="text-white">{u.email}</strong></>
+                              )}
+                              {" "}· Clave: <strong className="text-[#ffb5d7]">••••••••</strong>
                             </p>
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {u.email && (
+                              <a
+                                href={`mailto:${u.email}?subject=${encodeURIComponent("Accesos al Panel MAS30")}&body=${encodeURIComponent(`¡Hola ${u.fullName}!\n\nTe compartimos los datos de acceso al panel de control de MASTREINTA:\n\n• Panel: ${typeof window !== "undefined" ? window.location.origin : "https://mastreinta.vercel.app"}/admin\n• Usuario: ${u.username}\n• Rol: ${roleDef?.label || u.role}\n\nIngresá con tu usuario y contraseña designada.`)}`}
+                                className="p-1.5 rounded bg-[#252525] hover:bg-[#353535] text-[#ffb5d7] cursor-pointer"
+                                title="Enviar credenciales de acceso por email"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                              </a>
+                            )}
                             <button
                               type="button"
                               onClick={() => {
@@ -5278,6 +5344,7 @@ export default function AdminDashboardPage() {
                                 setNewUserFullName(u.fullName);
                                 setNewUsername(u.username);
                                 setNewUserPassword("");
+                                setNewUserEmail(u.email || "");
                                 setNewUserRole(u.role);
                                 setUserAssignedEventIds(u.assignedEventIds || []);
                                 window.scrollTo({ top: 400, behavior: "smooth" });
@@ -6425,22 +6492,54 @@ export default function AdminDashboardPage() {
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
               />
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <input
+                  type="text"
+                  value={manualPhone}
+                  onChange={(e) => setManualPhone(e.target.value)}
+                  placeholder="WhatsApp del Invitado"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                />
+
+                <input
+                  type="email"
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  placeholder="Email del Invitado (para enviar accesos)"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                />
+              </div>
+
               <input
                 type="text"
-                value={manualPhone}
-                onChange={(e) => setManualPhone(e.target.value)}
-                placeholder="WhatsApp del Invitado"
+                value={manualDni}
+                onChange={(e) => setManualDni(e.target.value)}
+                placeholder="DNI del Invitado (opcional)"
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
               />
 
-              <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={manualIsCourtesy}
-                  onChange={(e) => setManualIsCourtesy(e.target.checked)}
-                />
-                Cortesía sin cargo ($0)
-              </label>
+              <div className="space-y-2 pt-1">
+                <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={manualIsCourtesy}
+                    onChange={(e) => setManualIsCourtesy(e.target.checked)}
+                  />
+                  Cortesía sin cargo ($0)
+                </label>
+
+                {manualEmail.trim() && (
+                  <label className="flex items-center gap-2 text-xs text-[#ffb5d7] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manualSendEmail}
+                      onChange={(e) => setManualSendEmail(e.target.checked)}
+                    />
+                    <Mail className="w-3.5 h-3.5" />
+                    Enviar Flyer + Códigos QR automáticamente por Email a {manualEmail.trim()}
+                  </label>
+                )}
+              </div>
 
               <button
                 type="submit"
