@@ -28,6 +28,7 @@ import {
   MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   Printer,
   QrCode,
@@ -58,6 +59,7 @@ import {
   deleteInquiry,
   deleteOrder,
   deleteSingleTicket,
+  ensureOrderTickets,
   formatARS,
   getAdminRoles,
   getAdminUsers,
@@ -70,6 +72,7 @@ import {
   getTickets,
   getUserPermissions,
   saveOrders,
+  updateOrderCustomerData,
   INITIAL_ADMIN_ROLES,
   INITIAL_ADMIN_USERS,
   INITIAL_ANALYTICS,
@@ -238,6 +241,17 @@ export default function AdminDashboardPage() {
   const [manualSendEmail, setManualSendEmail] = useState(true);
   const [manualQty, setManualQty] = useState(2);
   const [manualIsCourtesy, setManualIsCourtesy] = useState(true);
+  const [manualPrice, setManualPrice] = useState<number | "">("");
+
+  // Modal Editar Datos de Comprador / Orden
+  const [editingOrder, setEditingOrder] = useState<OrderItem | null>(null);
+  const [editBuyerName, setEditBuyerName] = useState("");
+  const [editBuyerPhone, setEditBuyerPhone] = useState("");
+  const [editBuyerEmail, setEditBuyerEmail] = useState("");
+  const [editBuyerDni, setEditBuyerDni] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editTotalAmount, setEditTotalAmount] = useState<number | "">("");
+  const [editOrderSavedMsg, setEditOrderSavedMsg] = useState("");
 
   // Estado Carga / Edición de Evento
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -636,6 +650,11 @@ export default function AdminDashboardPage() {
         buyerEmail: emailToSend || undefined,
         quantity: manualQty,
         isCourtesy: manualIsCourtesy,
+        customTotalAmount: manualIsCourtesy
+          ? 0
+          : typeof manualPrice === "number" && manualPrice >= 0
+            ? manualPrice
+            : undefined,
       },
       currentUser
         ? { username: currentUser.username, fullName: currentUser.fullName }
@@ -647,10 +666,59 @@ export default function AdminDashboardPage() {
     setManualDni("");
     setManualPhone("");
     setManualEmail("");
+    setManualPrice("");
     setExpandedOrderCode(order.orderCode);
 
     if (shouldSendEmail) {
       await handleSendOrderEmail(order, tickets, emailToSend);
+    }
+  };
+
+  const handleOpenEditOrder = (order: OrderItem) => {
+    setEditingOrder(order);
+    setEditBuyerName(order.buyerName || "");
+    setEditBuyerPhone(order.buyerPhone || "");
+    setEditBuyerEmail(
+      order.buyerEmail && !order.buyerEmail.endsWith("@mas30.com")
+        ? order.buyerEmail
+        : ""
+    );
+    setEditBuyerDni(order.buyerDni || "");
+    setEditNotes(order.notes || "");
+    setEditTotalAmount(order.totalAmount ?? 0);
+    setEditOrderSavedMsg("");
+  };
+
+  const handleSaveOrderCustomerData = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder) return;
+    try {
+      await updateOrderCustomerData(editingOrder.id, {
+        buyerName: editBuyerName,
+        buyerPhone: editBuyerPhone,
+        buyerEmail: editBuyerEmail.trim() || undefined,
+        buyerDni: editBuyerDni,
+        notes: editNotes,
+        totalAmount: typeof editTotalAmount === "number" ? editTotalAmount : 0,
+      });
+      syncAll();
+      setEditOrderSavedMsg("✓ Datos del comprador actualizados correctamente.");
+      setTimeout(() => {
+        setEditingOrder(null);
+        setEditOrderSavedMsg("");
+      }, 1200);
+    } catch (err) {
+      setEditOrderSavedMsg("Error al guardar los datos.");
+    }
+  };
+
+  const handleGenerateMissingQRs = async (orderId: string) => {
+    try {
+      const generated = await ensureOrderTickets(orderId);
+      syncAll();
+      alert(`✓ Se generaron correctamente ${generated.length} código(s) QR para esta orden.`);
+    } catch (err) {
+      alert("Error al generar los códigos QR: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -1612,11 +1680,21 @@ export default function AdminDashboardPage() {
 
             <button
               type="button"
-              onClick={() => setShowManualModal(true)}
+              onClick={() => {
+                if (visibleEvents.length > 0) {
+                  const ev = visibleEvents[0];
+                  setManualEventId(ev.id);
+                  if (ev.ticketTiers.length > 0) {
+                    setManualTierId(ev.ticketTiers[0].id);
+                    setManualPrice(ev.ticketTiers[0].price * (manualQty || 1));
+                  }
+                }
+                setShowManualModal(true);
+              }}
               className="px-4 py-2.5 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm flex items-center gap-2 cursor-pointer hover:brightness-90"
             >
               <UserPlus className="w-4 h-4" />
-              Emitir Cortesía / QR Manual
+              Emitir Accesos / QR Manual
             </button>
 
             <Link
@@ -2291,7 +2369,11 @@ export default function AdminDashboardPage() {
             <div className="space-y-4">
               {filteredOrders.map((order) => {
                 const orderTickets = tickets.filter(
-                  (t) => t.orderCode === order.orderCode
+                  (t) =>
+                    (t.orderCode &&
+                      t.orderCode.trim().toUpperCase() ===
+                        order.orderCode.trim().toUpperCase()) ||
+                    (t.orderId && t.orderId === order.id)
                 );
                 const orderEvent = events.find((e) => e.id === order.eventId);
                 const orderTier = orderEvent?.ticketTiers.find(
@@ -2307,12 +2389,15 @@ export default function AdminDashboardPage() {
                       )
                 );
                 const isExpanded = expandedOrderCode === order.orderCode;
-                const codesListText = orderTickets
-                  .map(
-                    (t, idx) =>
-                      `• Entrada #${idx + 1} (${t.holderName}): *${t.shortCode}*`
-                  )
-                  .join("\n");
+                const codesListText =
+                  orderTickets.length > 0
+                    ? orderTickets
+                        .map(
+                          (t, idx) =>
+                            `• Entrada #${idx + 1} (${t.holderName}): *${t.shortCode}*`
+                        )
+                        .join("\n")
+                    : `• Código de orden / ingreso: *${order.orderCode}*`;
                 const waUrl = `https://wa.me/${order.buyerPhone.replace(
                   /[^0-9]/g,
                   ""
@@ -2367,13 +2452,34 @@ export default function AdminDashboardPage() {
                           </span>
                         </div>
 
-                        <h3 className="text-lg font-medium text-white">
-                          {order.buyerName}{" "}
-                          <span className="text-xs font-normal text-[#8a8a8a]">
-                            ({order.buyerDni ? `DNI ${order.buyerDni} · ` : ""}
-                            {order.buyerPhone} · {order.buyerEmail})
-                          </span>
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-medium text-white">
+                            {order.buyerName}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOrder(order)}
+                            className="p-1 rounded bg-[#252525] hover:bg-[#353535] text-[#ffb5d7] cursor-pointer"
+                            title="Editar datos del cliente (nombre, teléfono, email, DNI, monto)"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <span className="text-xs font-normal text-[#8a8a8a] block">
+                          ({order.buyerDni ? `DNI ${order.buyerDni} · ` : ""}
+                          {order.buyerPhone} ·{" "}
+                          {order.buyerEmail &&
+                          !order.buyerEmail.endsWith("@mas30.com") ? (
+                            <strong className="text-white">
+                              {order.buyerEmail}
+                            </strong>
+                          ) : (
+                            <span className="text-amber-400 font-medium">
+                              Sin email (clic en Editar para cargarlo)
+                            </span>
+                          )}
+                          )
+                        </span>
 
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#8a8a8a]">
                           <span>
@@ -2413,6 +2519,15 @@ export default function AdminDashboardPage() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => handleOpenEditOrder(order)}
+                              className="px-3 py-2.5 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                              title="Editar datos del cliente"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                              Editar
+                            </button>
+                            <button
+                              type="button"
                               onClick={async () => {
                                 await rejectOrder(order.id);
                                 syncAll();
@@ -2426,6 +2541,20 @@ export default function AdminDashboardPage() {
 
                         {order.status === "APROBADA" && (
                           <>
+                            {orderTickets.length === 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleGenerateMissingQRs(order.id)
+                                }
+                                className="px-3 py-2 rounded-[3px] bg-amber-950 border border-amber-600/60 text-amber-200 text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:bg-amber-900"
+                                title="Esta orden está autorizada pero no tiene QRs vinculados. Clic para generarlos ahora."
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                                Generar QRs Faltantes
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() =>
@@ -2439,6 +2568,16 @@ export default function AdminDashboardPage() {
                               {isExpanded
                                 ? "Ocultar QRs"
                                 : `Ver ${orderTickets.length} QRs`}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditOrder(order)}
+                              className="px-3 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                              title="Editar datos del comprador, email o monto"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                              Editar Datos
                             </button>
 
                             <a
@@ -6523,13 +6662,63 @@ export default function AdminDashboardPage() {
                   <input
                     type="checkbox"
                     checked={manualIsCourtesy}
-                    onChange={(e) => setManualIsCourtesy(e.target.checked)}
+                    onChange={(e) => {
+                      const isFree = e.target.checked;
+                      setManualIsCourtesy(isFree);
+                      if (isFree) {
+                        setManualPrice(0);
+                      } else {
+                        const tierPrice =
+                          selectedManualEvent?.ticketTiers.find(
+                            (t) => t.id === manualTierId
+                          )?.price || 10000;
+                        setManualPrice(tierPrice * manualQty);
+                      }
+                    }}
                   />
                   Cortesía sin cargo ($0)
                 </label>
 
+                {!manualIsCourtesy && (
+                  <div className="pt-2">
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Monto Cobrado / Valor de los Accesos ($ ARS) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-white/50 font-mono">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={manualPrice}
+                        onChange={(e) =>
+                          setManualPrice(
+                            e.target.value === ""
+                              ? ""
+                              : Number(e.target.value)
+                          )
+                        }
+                        placeholder={
+                          selectedManualEvent && manualTierId
+                            ? `Sugerido: $${
+                                (selectedManualEvent.ticketTiers.find(
+                                  (t) => t.id === manualTierId
+                                )?.price || 10000) * manualQty
+                              }`
+                            : "Monto total en ARS"
+                        }
+                        className="w-full pl-8 pr-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#8a8a8a] mt-1">
+                      Podés colocar el monto exacto acordado (ej: 25000). Quedará registrado en la orden y en rendición.
+                    </p>
+                  </div>
+                )}
+
                 {manualEmail.trim() && (
-                  <label className="flex items-center gap-2 text-xs text-[#ffb5d7] cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs text-[#ffb5d7] cursor-pointer pt-1">
                     <input
                       type="checkbox"
                       checked={manualSendEmail}
@@ -6547,6 +6736,139 @@ export default function AdminDashboardPage() {
               >
                 Emitir {manualQty} Código(s) QR
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PARA EDITAR DATOS DEL COMPRADOR / ORDEN */}
+      {editingOrder && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-lg bg-[#1c1c1c] border border-[#353535] p-6 sm:p-8 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-normal text-white">
+                  Editar Datos de la Orden
+                </h3>
+                <span className="font-mono text-xs text-[#ffb5d7]">
+                  {editingOrder.orderCode} · {editingOrder.eventTitle}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingOrder(null)}
+                className="p-2 text-white/60 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editOrderSavedMsg && (
+              <div className="p-3 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200">
+                {editOrderSavedMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveOrderCustomerData} className="space-y-4">
+              <div>
+                <label className="block text-xs text-[#8a8a8a] mb-1">
+                  Nombre del Comprador / Titular *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editBuyerName}
+                  onChange={(e) => setEditBuyerName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    WhatsApp / Teléfono *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editBuyerPhone}
+                    onChange={(e) => setEditBuyerPhone(e.target.value)}
+                    placeholder="Ej: +54 9 11 1234-5678"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8a8a8a] mb-1">
+                    DNI / Documento
+                  </label>
+                  <input
+                    type="text"
+                    value={editBuyerDni}
+                    onChange={(e) => setEditBuyerDni(e.target.value)}
+                    placeholder="DNI del titular"
+                    className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#8a8a8a] mb-1">
+                  Correo Electrónico (Email para envío de entradas) *
+                </label>
+                <input
+                  type="email"
+                  value={editBuyerEmail}
+                  onChange={(e) => setEditBuyerEmail(e.target.value)}
+                  placeholder="ejemplo@correo.com"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#8a8a8a] mb-1">
+                  Monto Total ($ ARS)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editTotalAmount}
+                  onChange={(e) =>
+                    setEditTotalAmount(
+                      e.target.value === "" ? "" : Number(e.target.value)
+                    )
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#8a8a8a] mb-1">
+                  Notas / Referencia Interna
+                </label>
+                <textarea
+                  rows={2}
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Anotaciones de la venta..."
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingOrder(null)}
+                  className="px-4 py-2.5 rounded bg-[#252525] text-xs text-white hover:bg-[#353535] cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
             </form>
           </div>
         </div>

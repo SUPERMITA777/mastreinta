@@ -1030,6 +1030,8 @@ export async function createTransferOrder(input: {
   spotName?: string;
   spotPerks?: string;
   sectorName?: string;
+  customTotalAmount?: number;
+  customUnitPrice?: number;
 }): Promise<OrderItem> {
   const matchingSpot = input.spotId
     ? input.event.venueMap?.spots.find((s) => s.id === input.spotId)
@@ -1049,8 +1051,18 @@ export async function createTransferOrder(input: {
   const totalQrCount = matchingSpot
     ? matchingSpot.capacity
     : input.quantity * qrCountPerUnit;
-  const unitPrice = matchingSpot ? matchingSpot.price : tier.price;
-  const totalAmount = matchingSpot ? matchingSpot.price : tier.price * input.quantity;
+  const unitPrice =
+    input.customUnitPrice !== undefined
+      ? input.customUnitPrice
+      : matchingSpot
+        ? matchingSpot.price
+        : tier.price;
+  const totalAmount =
+    input.customTotalAmount !== undefined
+      ? input.customTotalAmount
+      : matchingSpot
+        ? matchingSpot.price
+        : tier.price * input.quantity;
 
   const randomHex = Array.from(
     crypto.getRandomValues(new Uint8Array(4)),
@@ -1305,6 +1317,7 @@ export async function createManualAdminAccess(
     buyerEmail?: string;
     quantity: number;
     isCourtesy: boolean;
+    customTotalAmount?: number;
   },
   operator?: { username: string; fullName: string }
 ): Promise<{ order: OrderItem; tickets: TicketQR[] }> {
@@ -1319,6 +1332,13 @@ export async function createManualAdminAccess(
 
   const qrCountPerUnit = Math.max(1, Number(tier.qrCount) || 1);
   const totalQRs = input.quantity * qrCountPerUnit;
+
+  const totalAmount = input.isCourtesy
+    ? 0
+    : input.customTotalAmount !== undefined && input.customTotalAmount >= 0
+      ? input.customTotalAmount
+      : tier.price * input.quantity;
+  const unitPrice = input.quantity > 0 ? Math.round(totalAmount / input.quantity) : totalAmount;
 
   const createdOrder = await createTransferOrder({
     event,
@@ -1342,6 +1362,8 @@ export async function createManualAdminAccess(
           : `${input.holderName} (Acceso #${idx + 1})`,
       dni: input.holderDni,
     })),
+    customTotalAmount: totalAmount,
+    customUnitPrice: unitPrice,
   });
 
   if (input.isCourtesy) {
@@ -1354,7 +1376,7 @@ export async function createManualAdminAccess(
   } else {
     const orders = getOrders().map((o) =>
       o.id === createdOrder.id
-        ? { ...o, issueType: "VENTA_MANUAL_ADMIN" as const }
+        ? { ...o, unitPrice, totalAmount, issueType: "VENTA_MANUAL_ADMIN" as const }
         : o
     );
     saveOrders(orders);
@@ -1366,6 +1388,70 @@ export async function createManualAdminAccess(
     input.isCourtesy ? "CORTESIA_ADMIN" : "VENTA_MANUAL_ADMIN"
   );
   return { order, tickets: generatedTickets };
+}
+
+export async function updateOrderCustomerData(
+  orderId: string,
+  data: {
+    buyerName?: string;
+    buyerPhone?: string;
+    buyerEmail?: string;
+    buyerDni?: string;
+    notes?: string;
+    totalAmount?: number;
+  }
+): Promise<OrderItem> {
+  const orders = getOrders();
+  const target = orders.find((o) => o.id === orderId || o.orderCode === orderId);
+  if (!target) throw new Error("Orden no encontrada");
+
+  const updatedOrder: OrderItem = {
+    ...target,
+    buyerName: data.buyerName !== undefined ? data.buyerName.trim() : target.buyerName,
+    buyerPhone: data.buyerPhone !== undefined ? data.buyerPhone.trim() : target.buyerPhone,
+    buyerEmail: data.buyerEmail !== undefined ? data.buyerEmail.trim() : target.buyerEmail,
+    buyerDni: data.buyerDni !== undefined ? data.buyerDni.trim() : target.buyerDni,
+    notes: data.notes !== undefined ? data.notes.trim() : target.notes,
+    totalAmount: data.totalAmount !== undefined ? Number(data.totalAmount) : target.totalAmount,
+  };
+
+  const updatedOrders = orders.map((o) => (o.id === target.id ? updatedOrder : o));
+  saveOrders(updatedOrders);
+
+  // También actualizar los tickets asociados con los nuevos datos
+  const currentTickets = getTickets();
+  const updatedTickets = currentTickets.map((t) => {
+    if (
+      t.orderId === target.id ||
+      (t.orderCode && t.orderCode.trim().toUpperCase() === target.orderCode.trim().toUpperCase())
+    ) {
+      return {
+        ...t,
+        holderName: data.buyerName && t.ticketNumber === 1 ? data.buyerName.trim() : t.holderName,
+        holderDni: data.buyerDni !== undefined ? data.buyerDni.trim() : t.holderDni,
+        buyerPhone: data.buyerPhone !== undefined ? data.buyerPhone.trim() : t.buyerPhone,
+        buyerEmail: data.buyerEmail !== undefined ? data.buyerEmail.trim() : t.buyerEmail,
+      };
+    }
+    return t;
+  });
+  saveTickets(updatedTickets);
+
+  return updatedOrder;
+}
+
+export async function ensureOrderTickets(orderId: string): Promise<TicketQR[]> {
+  const orders = getOrders();
+  const target = orders.find((o) => o.id === orderId || o.orderCode === orderId);
+  if (!target) return [];
+  const existing = getTickets().filter(
+    (t) =>
+      t.orderId === target.id ||
+      (t.orderCode && t.orderCode.trim().toUpperCase() === target.orderCode.trim().toUpperCase())
+  );
+  if (existing.length > 0) return existing;
+  const { generatedTickets } = await approveOrderAndGenerateQRs(target.id);
+  return generatedTickets;
 }
 
 export async function rejectOrder(orderId: string): Promise<void> {
