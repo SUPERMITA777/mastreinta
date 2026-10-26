@@ -362,6 +362,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, analytics: emptyAnalytics });
     }
 
+    if (payload.action === "delete_order" && payload.orderId) {
+      if (!(await hasPermission(admin, "canApproveOrders"))) {
+        return NextResponse.json({ ok: false, error: "Sin permiso para eliminar órdenes" }, { status: 403 });
+      }
+      const targetId = String(payload.orderId).trim();
+      await mutateState((state) => {
+        const orders = ((state.orders as Array<{ id?: string; orderCode?: string }>) || []).filter(
+          (o) => o.id !== targetId && o.orderCode !== targetId
+        );
+        const tickets = ((state.tickets as Array<{ orderId?: string; orderCode?: string }>) || []).filter(
+          (t) => t.orderId !== targetId && t.orderCode !== targetId
+        );
+        state.orders = orders;
+        state.tickets = tickets;
+        return true;
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     // Solo se aceptan claves conocidas del estado
     const ALLOWED = [
       "events",
@@ -454,8 +473,11 @@ export async function POST(req: Request) {
           (incoming.orders as Array<{ id?: string }>).map((o) => o?.id)
         );
         const cutoff = Date.now() - 5 * 60 * 1000;
+        // Solo preservar si fue creada en los últimos 5 minutos por Mercado Pago para no perder pagos en tránsito
         const keep = cloudOrders.filter((o) => {
-          return !incomingIds.has(o.id as string);
+          if (incomingIds.has(o.id as string)) return false;
+          const createdTime = o.createdAt ? new Date(o.createdAt as string).getTime() : 0;
+          return o.issueType === "MERCADOPAGO_WEB" && createdTime > cutoff;
         });
         if (keep.length > 0) {
           incoming.orders = [...keep, ...(incoming.orders as unknown[])];
@@ -467,10 +489,14 @@ export async function POST(req: Request) {
           const cloudTickets = (Array.isArray(currentCloud.tickets)
             ? currentCloud.tickets
             : []) as Array<Record<string, unknown>>;
-          incoming.tickets = [
-            ...cloudTickets.filter((t) => !have.has(t.id as string)),
-            ...(incoming.tickets as unknown[]),
-          ];
+          const keepTickets = cloudTickets.filter((t) => {
+            if (have.has(t.id as string)) return false;
+            const createdTime = t.createdAt ? new Date(t.createdAt as string).getTime() : 0;
+            return createdTime > cutoff;
+          });
+          if (keepTickets.length > 0) {
+            incoming.tickets = [...keepTickets, ...(incoming.tickets as unknown[])];
+          }
         }
       }
 

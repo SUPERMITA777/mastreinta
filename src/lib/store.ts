@@ -1515,6 +1515,18 @@ export async function deleteOrder(orderId: string): Promise<void> {
       }
     }
   }
+
+  // Notificar explícitamente a la nube para borrar de inmediato
+  try {
+    await fetch("/api/cloud-store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ action: "delete_order", orderId }),
+    });
+  } catch (err) {
+    console.error("Error al eliminar orden de la nube:", err);
+  }
 }
 
 // ==========================================
