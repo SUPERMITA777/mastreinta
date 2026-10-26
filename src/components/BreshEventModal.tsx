@@ -30,6 +30,8 @@ import {
   formatARS,
   getBankSettings,
   getInquiries,
+  getOrders,
+  saveOrders,
   INITIAL_SETTINGS,
   trackVisit,
 } from "@/lib/store";
@@ -71,6 +73,7 @@ export default function BreshEventModal({
   const [submitting, setSubmitting] = useState(false);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState("");
+  const [createdOrderCode, setCreatedOrderCode] = useState<string | null>(null);
   // Estado Pregunta Rápida
   const [qName, setQName] = useState("");
   const [qEmail, setQEmail] = useState("");
@@ -83,6 +86,7 @@ export default function BreshEventModal({
     setSelectedTierId(event.ticketTiers[0]?.id || "");
     setSelectedSpot(null);
     setShowCheckout(false);
+    setCreatedOrderCode(null);
     setBank(getBankSettings());
     const allInq = getInquiries();
     setQuestions(
@@ -147,23 +151,27 @@ export default function BreshEventModal({
     ? selectedSpot.price
     : (selectedTier?.price || 0) * quantity;
 
-  const whatsappOrderText = [
-    `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
-    ``,
-    `🎟 *Detalle de la compra:*`,
-    selectedSpot
-      ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
-      : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
-    ``,
-    `👤 *Datos del cliente:*`,
-    `• Nombre: ${buyerName.trim() || "-"}`,
-    `• WhatsApp: ${buyerPhone.trim() || "-"}`,
-    `• Email: ${buyerEmail.trim() || "-"}`,
-  ].join("\n");
+  const buildWhatsappOrderText = (orderCode?: string) =>
+    [
+      `¡Hola! Quiero comprar / enviar el comprobante de mis entradas para *${event.title}* (${event.dateLabel}).`,
+      orderCode ? `📋 *N° de Orden:* *#${orderCode}*` : "",
+      ``,
+      `🎟 *Detalle de la compra:*`,
+      selectedSpot
+        ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
+        : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
+      ``,
+      `👤 *Datos del cliente:*`,
+      `• Nombre: ${buyerName.trim() || "-"}`,
+      `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+      `• Email: ${buyerEmail.trim() || "-"}`,
+    ]
+      .filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""))
+      .join("\n");
 
   const organizerWhatsappHref = `https://wa.me/${(
     event.organizerWhatsapp || bank.whatsappSupport
-  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(buildWhatsappOrderText(createdOrderCode || undefined))}`;
 
   const handleMercadoPago = async () => {
     if (!event) return;
@@ -199,23 +207,59 @@ export default function BreshEventModal({
     }
   };
 
-  const handleOrderSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (buyerName.trim()) {
-      createTransferOrder({
-        event,
-        tierId: selectedTier.id,
-        quantity,
-        buyerName,
-        buyerDni: "",
-        buyerEmail,
-        buyerPhone,
-        transferSender: buyerName,
-        transferReference: "Transferencia / WhatsApp",
-        attendees,
-      }).catch(() => {});
+  const handleOrderSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (!event) return;
+    setPayError("");
+    if (!buyerName.trim() || !buyerPhone.trim() || !/^\S+@\S+\.\S+$/.test(buyerEmail)) {
+      setPayError("Completá tu nombre, WhatsApp y un email válido antes de continuar.");
+      return;
     }
-    window.open(organizerWhatsappHref, "_blank", "noopener,noreferrer");
+    setSubmitting(true);
+    trackVisit("whatsapp_click", event.id);
+    const waNumber = (event.organizerWhatsapp || bank.whatsappSupport).replace(/[^0-9]/g, "");
+
+    try {
+      const res = await fetch("/api/orders/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: event.id,
+          tierId: selectedSpot ? undefined : selectedTier?.id,
+          spotId: selectedSpot?.id,
+          quantity: selectedSpot ? 1 : quantity,
+          buyerName,
+          buyerEmail,
+          buyerPhone,
+          buyerDni,
+          attendees,
+          notes: selectedSpot ? `[Mesa / Sector: ${selectedSpot.name}]` : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "No se pudo registrar la reserva.");
+      }
+
+      const orderCode = data.orderCode;
+      setCreatedOrderCode(orderCode);
+      if (data.order) {
+        saveOrders([data.order, ...getOrders()]);
+      }
+
+      const text = buildWhatsappOrderText(orderCode);
+      const href = `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`;
+      window.open(href, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error(err);
+      // Respaldo en caso de error de conexión
+      const fallbackText = buildWhatsappOrderText();
+      const href = `https://wa.me/${waNumber}?text=${encodeURIComponent(fallbackText)}`;
+      window.open(href, "_blank", "noopener,noreferrer");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleQuestionSubmit = async (e: React.FormEvent) => {
@@ -648,48 +692,38 @@ export default function BreshEventModal({
                       </>
                     )}
 
-                    <a
-                      href={`https://wa.me/${(
-                        event.organizerWhatsapp || bank.whatsappSupport
-                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => {
-                        trackVisit("whatsapp_click", event.id);
-                        if (buyerName.trim()) {
-                          createTransferOrder({
-                            event,
-                            tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
-                            quantity: selectedSpot ? 1 : quantity,
-                            buyerName,
-                            buyerDni: "",
-                            buyerEmail,
-                            buyerPhone,
-                            transferSender: buyerName,
-                            transferReference: "Transferencia / WhatsApp",
-                            notes: selectedSpot ? `[Mesa / Sector: ${selectedSpot.name}]` : undefined,
-                            attendees,
-                            spotId: selectedSpot?.id,
-                            spotName: selectedSpot?.name,
-                            spotPerks: selectedSpot?.perks,
-                            sectorName: selectedSpot?.sectorName,
-                          }).catch(() => {});
-                        }
-                      }}
-                      className="w-full py-3.5 px-4 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
-                      Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
-                    </a>
+                    {payError && (
+                      <div className="p-3 rounded-md bg-red-950/60 border border-red-800/60 text-xs text-red-200 text-center">
+                        {payError}
+                      </div>
+                    )}
+
+                    {createdOrderCode && (
+                      <div className="p-4 rounded-md bg-[#181818] border border-[#ffb5d7]/50 text-center space-y-2">
+                        <p className="text-sm font-medium text-[#ffb5d7]">
+                          ¡Orden #{createdOrderCode} registrada correctamente!
+                        </p>
+                        <p className="text-xs text-white/70">
+                          Se abrió WhatsApp para enviar tus datos y comprobante. Al confirmar la recepción, el organizador habilitará tus QRs.
+                        </p>
+                        <Link
+                          href={`/mi-entrada/${encodeURIComponent(createdOrderCode)}`}
+                          className="inline-block text-xs text-[#ffb5d7] underline hover:text-white"
+                        >
+                          Ver estado de mi entrada (#{createdOrderCode})
+                        </Link>
+                      </div>
+                    )}
 
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="hidden w-full py-3.5 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
+                      className="w-full py-3.5 px-4 rounded-[3px] bg-[#ffb5d7] hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
                     >
+                      <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
                       {submitting
-                        ? "Procesando..."
-                        : `Confirmar Reserva (${formatARS(totalAmount)}) y Solicitar ${totalQRs} QR${totalQRs > 1 ? "s" : ""}`}
+                        ? "Registrando orden..."
+                        : "Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)"}
                     </button>
                   </form>
                 </div>

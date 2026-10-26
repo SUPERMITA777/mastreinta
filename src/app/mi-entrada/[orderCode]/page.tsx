@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  Loader2,
   MessageCircle,
   X,
 } from "lucide-react";
@@ -23,30 +24,76 @@ import TicketQRCard from "@/components/TicketQRCard";
 
 export default function MyOrderTicketsPage() {
   const params = useParams<{ orderCode: string }>();
-  const rawCode = decodeURIComponent(params?.orderCode || "");
+  const rawCode = decodeURIComponent(params?.orderCode || "").trim();
 
   const [order, setOrder] = useState<OrderItem | undefined>(undefined);
   const [tickets, setTickets] = useState<TicketQR[]>([]);
   const [bank, setBank] = useState<BankSettings>(INITIAL_SETTINGS);
+  const [loading, setLoading] = useState(true);
 
-  const loadOrderData = () => {
+  const fetchCloudOrder = useCallback(async () => {
+    if (!rawCode) return;
+    try {
+      const res = await fetch(`/api/orders/lookup?orderCode=${encodeURIComponent(rawCode)}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.order) {
+          setOrder(data.order);
+          if (Array.isArray(data.tickets) && data.tickets.length > 0) {
+            setTickets(data.tickets);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error al consultar orden en la nube:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [rawCode]);
+
+  const loadOrderData = useCallback(() => {
     const foundOrder = getOrderByCode(rawCode);
-    setOrder(foundOrder);
     if (foundOrder) {
-      setTickets(getTicketsByOrderCode(foundOrder.orderCode));
+      setOrder(foundOrder);
+      const tkts = getTicketsByOrderCode(foundOrder.orderCode);
+      if (tkts.length > 0) {
+        setTickets(tkts);
+      }
+      setLoading(false);
     }
     setBank(getBankSettings());
-  };
+    void fetchCloudOrder();
+  }, [rawCode, fetchCloudOrder]);
 
   useEffect(() => {
     loadOrderData();
     window.addEventListener("mas30-store-updated", loadOrderData);
     window.addEventListener("storage", loadOrderData);
+
+    // Polling si la orden aún está pendiente
+    const interval = setInterval(() => {
+      void fetchCloudOrder();
+    }, 8000);
+
     return () => {
       window.removeEventListener("mas30-store-updated", loadOrderData);
       window.removeEventListener("storage", loadOrderData);
+      clearInterval(interval);
     };
-  }, [rawCode]);
+  }, [loadOrderData, fetchCloudOrder]);
+
+  if (loading && !order) {
+    return (
+      <div className="container py-24 text-center space-y-5">
+        <Loader2 className="w-10 h-10 text-[#ffb5d7] mx-auto animate-spin" />
+        <h1 className="text-2xl font-normal text-white">
+          Buscando tu reserva #{rawCode}...
+        </h1>
+      </div>
+    );
+  }
 
   if (!order) {
     return (
