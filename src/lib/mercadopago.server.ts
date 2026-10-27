@@ -364,6 +364,9 @@ export function mutateState<T>(
   const run = stateLock.then(async () => {
     const state = (await readCloudState()) || {};
     const result = await fn(state);
+    if (result === null || result === undefined) {
+      return result;
+    }
     state.updatedAt = new Date().toISOString();
     const { error } = await getAdminSupabase()
       .storage.from(STATE_BUCKET)

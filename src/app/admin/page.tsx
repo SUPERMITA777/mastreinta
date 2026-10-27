@@ -186,6 +186,7 @@ export default function AdminDashboardPage() {
       canResetScannedQR: false,
     });
   const [roleSavedMsg, setRoleSavedMsg] = useState("");
+  const [isSavingRole, setIsSavingRole] = useState(false);
 
   // Gestión de Usuarios y Asignación de Eventos por el Superadmin
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -196,6 +197,7 @@ export default function AdminDashboardPage() {
   const [newUserRole, setNewUserRole] = useState<string>("ADMIN");
   const [userAssignedEventIds, setUserAssignedEventIds] = useState<string[]>([]);
   const [userSavedMsg, setUserSavedMsg] = useState("");
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   // Filtros de Rendición de Cuentas
   const [rendicionEventFilter, setRendicionEventFilter] =
@@ -738,7 +740,7 @@ export default function AdminDashboardPage() {
     syncAll();
   };
 
-  const handleSaveRole = (e: React.FormEvent) => {
+  const handleSaveRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roleFormName.trim() || !roleFormLabel.trim()) return;
     const cleanName = roleFormName
@@ -756,25 +758,28 @@ export default function AdminDashboardPage() {
         cleanName === "LECTOR_QR",
       permissions: roleFormPermissions,
     };
-    upsertAdminRole(roleDef);
+    setIsSavingRole(true);
+    setRoleSavedMsg("Guardando rol...");
+    const res = await upsertAdminRole(roleDef);
+    setIsSavingRole(false);
+    if (!res.ok) {
+      setRoleSavedMsg(`⚠ Error al guardar el rol: ${res.error || "No se pudo sincronizar en el servidor."}`);
+      setTimeout(() => setRoleSavedMsg(""), 6000);
+      return;
+    }
     syncAll();
     setEditingRoleId(null);
     setRoleFormName("");
     setRoleFormLabel("");
     setRoleFormDesc("");
-    setRoleSavedMsg(`✓ Rol ${roleDef.label} guardado.`);
+    setRoleSavedMsg(`✓ Rol ${roleDef.label} guardado con éxito.`);
     setTimeout(() => setRoleSavedMsg(""), 3500);
   };
 
-  const handleCreateAdminUser = (e: React.FormEvent) => {
+  const handleCreateAdminUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserFullName.trim() || !newUsername.trim()) {
       setUserSavedMsg("⚠ Por favor completa nombre y usuario.");
-      setTimeout(() => setUserSavedMsg(""), 4000);
-      return;
-    }
-    if (!editingUserId && newUserPassword.trim().length < 4) {
-      setUserSavedMsg("⚠ La contraseña debe tener al menos 4 caracteres.");
       setTimeout(() => setUserSavedMsg(""), 4000);
       return;
     }
@@ -782,15 +787,61 @@ export default function AdminDashboardPage() {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_.-]/g, "");
+
+    if (!cleanUsername) {
+      setUserSavedMsg("⚠ El nombre de usuario contiene caracteres no válidos.");
+      setTimeout(() => setUserSavedMsg(""), 4000);
+      return;
+    }
+
+    const passTrim = newUserPassword.trim();
+    if (!editingUserId && passTrim.length < 8) {
+      setUserSavedMsg("⚠ La contraseña debe tener al menos 8 caracteres.");
+      setTimeout(() => setUserSavedMsg(""), 4000);
+      return;
+    }
+    if (editingUserId && passTrim.length > 0 && passTrim.length < 8) {
+      setUserSavedMsg("⚠ La nueva contraseña debe tener al menos 8 caracteres.");
+      setTimeout(() => setUserSavedMsg(""), 4000);
+      return;
+    }
+
+    const defaultPasswords = [
+      "supermas30",
+      "mas30admin",
+      "lector2026",
+      "caja2026",
+      "rrpp2026",
+      "puerta2026",
+      "12345678",
+    ];
+    if (passTrim && defaultPasswords.includes(passTrim.toLowerCase())) {
+      setUserSavedMsg("⚠ Por seguridad, no uses contraseñas conocidas o de fábrica (12345678, caja2026, etc.).");
+      setTimeout(() => setUserSavedMsg(""), 5000);
+      return;
+    }
+
+    const usernameConflict = adminUsers.some(
+      (u) =>
+        u.username.toLowerCase() === cleanUsername &&
+        (!editingUserId || u.id !== editingUserId)
+    );
+    if (usernameConflict) {
+      setUserSavedMsg(`⚠ Ya existe un usuario con el nombre @${cleanUsername}. Elegí otro usuario.`);
+      setTimeout(() => setUserSavedMsg(""), 4000);
+      return;
+    }
+
     const existing = adminUsers.find(
       (u) =>
         u.id === editingUserId ||
         u.username.toLowerCase() === cleanUsername
     );
+
     const created: AdminUser = {
       id: editingUserId || (existing ? existing.id : `usr-${Date.now()}`),
       username: cleanUsername,
-      password: newUserPassword.trim() || (existing ? existing.password : "12345678"),
+      password: passTrim || (existing ? existing.password : ""),
       fullName: newUserFullName.trim(),
       email: newUserEmail.trim() || undefined,
       role: newUserRole,
@@ -801,7 +852,19 @@ export default function AdminDashboardPage() {
       active: true,
       createdAt: existing ? existing.createdAt : new Date().toISOString(),
     };
-    upsertAdminUser(created);
+
+    setIsSavingUser(true);
+    setUserSavedMsg("Guardando cambios en el servidor...");
+
+    const res = await upsertAdminUser(created);
+    setIsSavingUser(false);
+
+    if (!res.ok) {
+      setUserSavedMsg(`⚠ Error al guardar: ${res.error || "No se pudo sincronizar en el servidor."}`);
+      setTimeout(() => setUserSavedMsg(""), 6000);
+      return;
+    }
+
     syncAll();
     setEditingUserId(null);
     setNewUserFullName("");
@@ -811,7 +874,7 @@ export default function AdminDashboardPage() {
     setNewUserRole("ADMIN");
     setUserAssignedEventIds([]);
     setUserSavedMsg(
-      `✓ Usuario @${cleanUsername} (${created.fullName}) guardado con éxito.`
+      `✓ Usuario @${cleanUsername} (${created.fullName}) guardado con éxito en la nube.`
     );
     setTimeout(() => setUserSavedMsg(""), 4000);
   };
@@ -5304,9 +5367,14 @@ export default function AdminDashboardPage() {
                         required={!editingUserId}
                         value={newUserPassword}
                         onChange={(e) => setNewUserPassword(e.target.value)}
-                        placeholder={editingUserId ? "Dejar vacío para mantener la actual" : "Clave de acceso"}
+                        placeholder={editingUserId ? "Dejar vacío para conservar la actual" : "Mínimo 8 caracteres"}
                         className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs font-mono text-white"
                       />
+                      <span className="text-[10px] text-[#8a8a8a] mt-1 block">
+                        {editingUserId
+                          ? "Dejá este campo vacío si no querés cambiarle la clave."
+                          : "Mínimo 8 caracteres. No usar claves conocidas (12345678, caja2026, etc.)."}
+                      </span>
                     </div>
                   </div>
 
@@ -5412,10 +5480,15 @@ export default function AdminDashboardPage() {
 
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 flex items-center justify-center gap-2"
+                    disabled={isSavingUser}
+                    className="w-full py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs cursor-pointer hover:brightness-95 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     <UserPlus className="w-4 h-4" />
-                    {editingUserId ? "Actualizar Usuario" : "Guardar Usuario con Permisos"}
+                    {isSavingUser
+                      ? "Guardando..."
+                      : editingUserId
+                      ? "Actualizar Usuario"
+                      : "Guardar Usuario con Permisos"}
                   </button>
                 </form>
               </div>
@@ -5495,9 +5568,12 @@ export default function AdminDashboardPage() {
                             {!isUserSuper && u.username !== currentUser?.username && (
                               <button
                                 type="button"
-                                onClick={() => {
+                                onClick={async () => {
                                   if (confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario @${u.username} (${u.fullName})? Ya no podrá ingresar al sistema.`)) {
-                                    deleteAdminUser(u.id);
+                                    const delRes = await deleteAdminUser(u.id);
+                                    if (!delRes.ok) {
+                                      alert(`No se pudo eliminar el usuario: ${delRes.error || "Error del servidor"}`);
+                                    }
                                     syncAll();
                                   }
                                 }}
@@ -5948,9 +6024,12 @@ export default function AdminDashboardPage() {
                           {!r.isSystem && (
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 if (confirm(`¿Eliminar rol ${r.label}?`)) {
-                                  deleteAdminRole(r.id);
+                                  const delRes = await deleteAdminRole(r.id);
+                                  if (!delRes.ok) {
+                                    alert(`No se pudo eliminar el rol: ${delRes.error || "Error del servidor"}`);
+                                  }
                                   syncAll();
                                 }
                               }}

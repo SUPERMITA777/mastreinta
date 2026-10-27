@@ -397,9 +397,12 @@ export async function POST(req: Request) {
 
     let errorMsg = "";
     const result = await mutateState(async (currentCloud) => {
-      // --- Claves reservadas al SUPERADMIN (ignoradas silenciosamente para otros roles) ---
-      if (!isSuper) {
+      // --- Claves de usuarios y roles ---
+      const canManageUsers = isSuper || (await hasPermission(admin, "canManageUsers"));
+      if (!canManageUsers) {
         delete incoming.adminUsers;
+      }
+      if (!isSuper) {
         delete incoming.adminRoles;
       }
       if (!(await hasPermission(admin, "canManageSettings"))) {
@@ -410,25 +413,69 @@ export async function POST(req: Request) {
       if (Array.isArray(incoming.adminUsers)) {
         const existing = (Array.isArray(currentCloud.adminUsers)
           ? currentCloud.adminUsers
-          : []) as Array<{ id: string; password?: string }>;
+          : []) as Array<{ id: string; username?: string; role?: string; password?: string; active?: boolean }>;
         const users = incoming.adminUsers as Array<{
           id: string;
           username?: string;
+          fullName?: string;
           role?: string;
           password?: string;
+          active?: boolean;
         }>;
+
+        // Si no es superadmin, no permitir modificar o borrar SUPERADMINs ni crear nuevos SUPERADMINs
+        if (!isSuper) {
+          const superAdmins = existing.filter((e) => e.role === "SUPERADMIN");
+          for (const sa of superAdmins) {
+            const match = users.find(
+              (u) =>
+                u.id === sa.id ||
+                (typeof u.username === "string" &&
+                  typeof sa.username === "string" &&
+                  u.username.toLowerCase() === sa.username.toLowerCase())
+            );
+            if (!match || match.role !== "SUPERADMIN" || match.active === false) {
+              errorMsg = "Solo un Superadministrador puede modificar o eliminar usuarios Superadmin.";
+              return null;
+            }
+          }
+          for (const u of users) {
+            const prev = existing.find(
+              (e) =>
+                e.id === u.id ||
+                (typeof e.username === "string" &&
+                  typeof u.username === "string" &&
+                  e.username.toLowerCase() === u.username.toLowerCase())
+            );
+            if (u.role === "SUPERADMIN" && (!prev || prev.role !== "SUPERADMIN")) {
+              errorMsg = "Solo un Superadministrador puede asignar el rol SUPERADMIN.";
+              return null;
+            }
+          }
+        }
+
         for (const u of users) {
-          const prev = existing.find((e) => e.id === u.id);
+          const prev = existing.find(
+            (e) =>
+              e.id === u.id ||
+              (typeof e.username === "string" &&
+                typeof u.username === "string" &&
+                e.username.trim().toLowerCase() === u.username.trim().toLowerCase())
+          );
+          if (prev && u.id !== prev.id) {
+            u.id = prev.id;
+          }
           const pw = String(u.password || "");
           if (!pw) {
-            if (prev?.password) u.password = prev.password; // vacío = conservar
-            else {
-              errorMsg = `El usuario "${u.username}" necesita una contraseña.`;
+            if (prev?.password) {
+              u.password = prev.password; // vacío = conservar contraseña previa
+            } else {
+              errorMsg = `El usuario "${u.fullName || u.username}" necesita una contraseña.`;
               return null;
             }
           } else if (!isHashed(pw)) {
-            if (pw.length < 8 || KNOWN_DEFAULT_PASSWORDS.has(pw)) {
-              errorMsg = `La contraseña de "${u.username}" debe tener al menos 8 caracteres y no ser una de fábrica.`;
+            if (pw.length < 8 || KNOWN_DEFAULT_PASSWORDS.has(pw.toLowerCase())) {
+              errorMsg = `La contraseña de "${u.fullName || u.username}" debe tener al menos 8 caracteres y no ser una contraseña por defecto.`;
               return null;
             }
             u.password = hashPassword(pw);
@@ -442,8 +489,8 @@ export async function POST(req: Request) {
           }
         }
         // No permitir quedarse sin ningún SUPERADMIN activo
-        if (!users.some((u) => u.role === "SUPERADMIN")) {
-          errorMsg = "Debe existir al menos un usuario SUPERADMIN.";
+        if (!users.some((u) => u.role === "SUPERADMIN" && u.active !== false)) {
+          errorMsg = "Debe existir al menos un usuario SUPERADMIN activo.";
           return null;
         }
       }

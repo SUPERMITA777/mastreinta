@@ -663,10 +663,17 @@ let cloudSyncInitialized = false;
 let isApplyingCloudState = false;
 let isSavingToCloud = false;
 
+export interface CloudStoreResult {
+  ok: boolean;
+  error?: string;
+}
+
 export async function pushToCloudStore(
   partial?: Record<string, unknown>
-): Promise<boolean> {
-  if (typeof window === "undefined" || isApplyingCloudState) return false;
+): Promise<CloudStoreResult> {
+  if (typeof window === "undefined" || isApplyingCloudState) {
+    return { ok: false, error: "Sincronización no disponible" };
+  }
   isSavingToCloud = true;
   try {
     const payload = partial || {
@@ -685,13 +692,15 @@ export async function pushToCloudStore(
       credentials: "same-origin",
       body: JSON.stringify(payload),
     });
+    const data = await res.json().catch(() => ({}));
     if (res.status === 401 && getCurrentAdminSession()) {
       // La sesión del servidor venció: cerrar también la sesión visual
       localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
       notifyStoreUpdate();
+      isSavingToCloud = false;
+      return { ok: false, error: data.error || "Sesión expirada. Por favor iniciá sesión nuevamente." };
     }
     if (res.ok) {
-      const data = await res.json();
       if (Array.isArray(data.events)) {
         try {
           localStorage.setItem(
@@ -702,12 +711,15 @@ export async function pushToCloudStore(
           // ignore quota error
         }
       }
+      isSavingToCloud = false;
+      return { ok: true };
     }
     isSavingToCloud = false;
-    return res.ok;
-  } catch {
+    return { ok: false, error: data.error || `Error del servidor (${res.status})` };
+  } catch (err: unknown) {
     isSavingToCloud = false;
-    return false;
+    const msg = err instanceof Error ? err.message : "Error de red";
+    return { ok: false, error: msg };
   }
 }
 
@@ -933,7 +945,7 @@ export async function upsertEvent(
             ? { ...u, assignedEventIds: Array.from(assigned) }
             : u
         );
-        saveAdminUsers(updatedUsers);
+        await saveAdminUsers(updatedUsers);
       }
     }
   }
@@ -1970,17 +1982,19 @@ export function getAdminRoles(): AdminRoleDefinition[] {
   }
 }
 
-export function saveAdminRoles(roles: AdminRoleDefinition[]): void {
-  if (typeof window === "undefined") return;
+export async function saveAdminRoles(
+  roles: AdminRoleDefinition[]
+): Promise<CloudStoreResult> {
+  if (typeof window === "undefined") return { ok: false };
   const normalized = normalizeAdminRolesList(roles);
   localStorage.setItem(STORAGE_KEYS.ADMIN_ROLES, JSON.stringify(normalized));
   notifyStoreUpdate();
-  void pushToCloudStore({ adminRoles: normalized });
+  return await pushToCloudStore({ adminRoles: normalized });
 }
 
-export function upsertAdminRole(
+export async function upsertAdminRole(
   roleDef: AdminRoleDefinition
-): AdminRoleDefinition[] {
+): Promise<{ ok: boolean; roles: AdminRoleDefinition[]; error?: string }> {
   const current = getAdminRoles();
   const cleanName = roleDef.name
     .trim()
@@ -1998,19 +2012,21 @@ export function upsertAdminRole(
         r.id === finalRole.id || r.name === finalRole.name ? finalRole : r
       )
     : [...current, finalRole];
-  saveAdminRoles(updated);
-  return updated;
+  const saveRes = await saveAdminRoles(updated);
+  return { ok: saveRes.ok, roles: updated, error: saveRes.error };
 }
 
-export function deleteAdminRole(roleId: string): AdminRoleDefinition[] {
+export async function deleteAdminRole(
+  roleId: string
+): Promise<{ ok: boolean; roles: AdminRoleDefinition[]; error?: string }> {
   const current = getAdminRoles();
   const target = current.find((r) => r.id === roleId);
   if (!target || target.isSystem || target.name === "SUPERADMIN") {
-    return current;
+    return { ok: false, roles: current, error: "No se puede eliminar un rol del sistema." };
   }
   const updated = current.filter((r) => r.id !== roleId);
-  saveAdminRoles(updated);
-  return updated;
+  const saveRes = await saveAdminRoles(updated);
+  return { ok: saveRes.ok, roles: updated, error: saveRes.error };
 }
 
 export function isSuperAdminUser(
@@ -2087,15 +2103,19 @@ export function getAdminUsers(): AdminUser[] {
   }
 }
 
-export function saveAdminUsers(users: AdminUser[]): void {
-  if (typeof window === "undefined") return;
+export async function saveAdminUsers(
+  users: AdminUser[]
+): Promise<CloudStoreResult> {
+  if (typeof window === "undefined") return { ok: false };
   const normalized = normalizeAdminUsersList(users);
   localStorage.setItem(STORAGE_KEYS.ADMIN_USERS, JSON.stringify(normalized));
   notifyStoreUpdate();
-  void pushToCloudStore({ adminUsers: normalized });
+  return await pushToCloudStore({ adminUsers: normalized });
 }
 
-export function upsertAdminUser(user: AdminUser): AdminUser[] {
+export async function upsertAdminUser(
+  user: AdminUser
+): Promise<{ ok: boolean; users: AdminUser[]; error?: string }> {
   const current = getAdminUsers();
   const exists = current.some(
     (u) =>
@@ -2110,19 +2130,21 @@ export function upsertAdminUser(user: AdminUser): AdminUser[] {
           : u
       )
     : [...current, user];
-  saveAdminUsers(updated);
-  return updated;
+  const saveRes = await saveAdminUsers(updated);
+  return { ok: saveRes.ok, users: updated, error: saveRes.error };
 }
 
-export function deleteAdminUser(userId: string): AdminUser[] {
+export async function deleteAdminUser(
+  userId: string
+): Promise<{ ok: boolean; users: AdminUser[]; error?: string }> {
   const current = getAdminUsers();
   const target = current.find((u) => u.id === userId);
   if (!target || target.username.toLowerCase() === "superadmin") {
-    return current;
+    return { ok: false, users: current, error: "No se puede eliminar el Superadministrador principal." };
   }
   const updated = current.filter((u) => u.id !== userId);
-  saveAdminUsers(updated);
-  return updated;
+  const saveRes = await saveAdminUsers(updated);
+  return { ok: saveRes.ok, users: updated, error: saveRes.error };
 }
 
 export function getCurrentAdminSession(): AdminUser | null {
