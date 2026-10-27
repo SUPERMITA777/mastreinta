@@ -19,8 +19,8 @@ import {
 } from "./types";
 import { getArgentinaDateKey } from "./dateUtils";
 
-const STORAGE_KEYS = {
-  EVENTS: "mas30_events_v3",
+export const STORAGE_KEYS = {
+  EVENTS: "mas30_events_v4",
   ORDERS: "mas30_orders_v4",
   TICKETS: "mas30_tickets_v4",
   INQUIRIES: "mas30_inquiries_v3",
@@ -185,12 +185,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
     password: "",
     fullName: "Lector QR Puerta · Validador",
     role: "LECTOR_QR",
-    assignedEventIds: [
-      "evt-halloween-3110",
-      "evt-pena-mastreinta-0612",
-      "evt-byebye-2026-2612",
-      "evt-fiesta-calor-0901",
-    ],
+    assignedEventIds: ["evt-halloween-3110"],
     active: true,
     createdAt: "2026-10-19T12:02:00Z",
   },
@@ -220,12 +215,7 @@ export const INITIAL_ADMIN_USERS: AdminUser[] = [
     password: "",
     fullName: "Operador Puerta Principal",
     role: "LECTOR_QR",
-    assignedEventIds: [
-      "evt-halloween-3110",
-      "evt-pena-mastreinta-0612",
-      "evt-byebye-2026-2612",
-      "evt-fiesta-calor-0901",
-    ],
+    assignedEventIds: ["evt-halloween-3110"],
     active: true,
     createdAt: "2026-10-19T12:20:00Z",
   },
@@ -242,6 +232,7 @@ const LEGACY_KEYS = [
   "mas30_inquiries_v2",
   "mas30_orders_v3",
   "mas30_tickets_v3",
+  "mas30_events_v3",
 ];
 
 function cleanLegacyStorage() {
@@ -382,35 +373,43 @@ export const INITIAL_EVENTS: EventItem[] = [
     id: "evt-halloween-3110",
     slug: "halloween-mas30-31-10",
     title: "HALLOWEEN",
-    subtitle:
-      "Noche de Brujas MAS30 · Ambientación terrorífica, premios a los mejores looks y fiesta toda la noche",
+    subtitle: "",
     category: "Fiestas",
-    date: "2026-10-31",
+    date: "2026-12-20",
     dateLabel: "sáb. 31 oct.",
     shortDate: "31.10",
-    time: "23:30 a 06:00 hs",
-    doorsOpen: "23:30 hs",
-    venueName: "MAS30 CLUB · HALLOWEEN EDITION",
-    venueAddress: "Av. Libertador & Dorrego, Palermo",
-    venueCity: "Buenos Aires",
+    time: "21:30 a 05:00 hs",
+    doorsOpen: "21:30 hs",
+    venueName: "PROXIMAMENTE...",
+    venueAddress: "secret location",
+    venueCity: "Florencio Varela",
     country: "Argentina",
-    mapUrl: "https://maps.google.com/?q=Av+Libertador+y+Dorrego+Buenos+Aires",
+    mapUrl: "https://maps.google.com/?q=PROXIMAMENTE...%20secret%20location%20Florencio%20Varela",
     mapEmbedUrl:
-      "https://www.google.com/maps?q=Av+Libertador+y+Dorrego+Buenos+Aires&output=embed",
-    flyerUrl: "/flyers/halloween.png",
+      "https://www.google.com/maps?q=PROXIMAMENTE...%20secret%20location%20Florencio%20Varela&output=embed",
+    flyerUrl:
+      "https://hpbwcewuekxfqlofwpzu.supabase.co/storage/v1/object/public/mas30-cloud-db/flyers/flyer-1792509006051.jpg",
     flyerGradient: "#ea580c",
     badge: "Sábado 31/10",
     featured: true,
     ageRestriction:
-      "Evento exclusivo para mayores de 30 años. Ingreso únicamente con DNI físico y código QR.",
+      "Evento exclusivo para mayores de 18 años. Ingreso con DNI físico y Qr de entrada",
     dressCode: "Disfraz Opcional / Look Dark & Halloween Chic",
     description:
-      "¡Llega la noche más embrujada del año a MAS30! Preparate para vivir un Halloween épico entre amigos +30: puesta escénica especial, tragos temáticos, premios para los mejores disfraces o accesorios de terror y todos los hits de los 90s, 2000s y cachengue para bailar hasta el amanecer.",
+      "Disfraces, pizza free y mucho modo MASTREINTA!!! Tenés que vivir esta experiencia... ",
+    headerLabel: "MAS30",
+    ticketInfoText: "Solo venta anticipada. No se venderán entradas en puerta. ",
+    checkoutNote:
+      "Pago por transferencia · El administrador autoriza y emite 1 QR por entrada",
+    whatsappMessage:
+      "¡Hola MAS30! Quiero hacer una consulta / comprar entradas para el evento *{evento}* ({fecha}).",
+    whatsappLabel: "Whatsapp",
+    instagramLabel: "Instagram Oficial",
+    tiktokLabel: "Red Social / Video",
     highlights: [
-      "Premios especiales y botellas para los mejores looks / disfraces de la noche",
-      "Recepción con shots temáticos de bienvenida hasta la 01:00 hs",
-      "Cabina en vivo con todos los clásicos de los 90s, 2000s, pop y fiesta",
-      "Entrada general única a $10.000 con código QR individual por asistente",
+      "Exclusivo para mayores de 30 años",
+      "Ingreso ágil con código QR individual en puerta",
+      "Coctelería de autor y sector VIP",
     ],
     lineup: [
       "DJ Residente MAS30 (Hits 90s & 2000s)",
@@ -420,12 +419,12 @@ export const INITIAL_EVENTS: EventItem[] = [
     ticketTiers: [
       {
         id: "tier-halloween-general",
-        name: "Entrada General · Halloween MAS30",
+        name: "Entrada General  + PIZZA FREE",
         description:
           "Acceso oficial a la fiesta de Halloween (Sábado 31/10). Incluye 1 código QR individual.",
-        price: 10000,
+        price: 15000,
         stock: 400,
-        sold: 0,
+        sold: 7,
         includes: [
           "Acceso General +30",
           "Participación en premios Halloween",
@@ -434,183 +433,14 @@ export const INITIAL_EVENTS: EventItem[] = [
       },
     ],
     venueMap: createDefaultVenueMap(),
-    paymentAccountId: "acc-test-organizador",
-    platformFeePercent: 10,
     status: "ACTIVO",
-    createdAt: "2026-10-20T00:00:00Z",
-  },
-  {
-    id: "evt-pena-mastreinta-0612",
-    slug: "la-pena-mastreinta-06-12",
-    title: "La Peña MASTREINTA!",
-    subtitle:
-      "Temática Argentina - Tropical · Cumbia clásica, cuarteto, peña folklórica moderna, fernet y baile",
-    category: "Fiestas",
-    date: "2026-12-06",
-    dateLabel: "dom. 06 dic.",
-    shortDate: "06.12",
-    time: "19:00 a 03:30 hs",
-    doorsOpen: "19:00 hs (Atardecer Argentino & Tropical)",
-    venueName: "ESPACIO AIRE LIBRE · MASTREINTA",
-    venueAddress: "Costanera Norte / Sector Terrazas",
-    venueCity: "Buenos Aires",
-    country: "Argentina",
-    mapUrl: "https://maps.google.com/?q=Costanera+Norte+Buenos+Aires",
-    mapEmbedUrl:
-      "https://www.google.com/maps?q=Costanera+Norte+Buenos+Aires&output=embed",
-    flyerUrl: "/flyers/pena-mastreinta.png",
-    flyerGradient: "#0284c7",
-    badge: "Domingo 06/12",
-    featured: true,
-    ageRestriction:
-      "Evento exclusivo para mayores de 30 años. Ingreso con DNI físico y QR.",
-    dressCode: "Toque Celeste y Blanco / Tropical & Verano",
-    description:
-      "¡Una fiesta bien nuestra y con todo el ritmo tropical! El domingo 6 de diciembre armamos La Peña MASTREINTA!: empezamos al aire libre con empanadas al horno de barro, barra de fernet tirado y vinos, peña moderna para cantar a los gritos y explotamos la pista con la mejor cumbia de los 90s/2000s, cuarteto y clásicos tropicales.",
-    highlights: [
-      "Temática Argentina + Tropical con decoración celeste, blanca y caribeña",
-      "Gastronomía criolla (empanadas, choripán gourmet) y barra de Fernet & Tragos",
-      "Banda invitada en vivo + Tanda histórica de Cumbia 90s/2000s y Cuarteto",
-      "Entrada general a $10.000 con código QR individual",
-    ],
-    lineup: [
-      "Peña Acústica & Clásicos Argentinos en Vivo",
-      "DJ Set Tropical: Los grandes himnos de la Cumbia 90s & 2000s",
-      "Cierre Cuartetero & Fiesta MASTREINTA",
-    ],
-    ticketTiers: [
-      {
-        id: "tier-pena-general",
-        name: "Entrada General · La Peña MASTREINTA!",
-        description:
-          "Acceso oficial para el Domingo 06/12. Incluye 1 código QR individual.",
-        price: 10000,
-        stock: 450,
-        sold: 0,
-        includes: [
-          "Acceso General +30",
-          "Sector Patio Criollo & Pista Tropical",
-          "Código QR Individual de Puerta",
-        ],
-      },
-    ],
-    status: "ACTIVO",
-    createdAt: "2026-10-20T00:05:00Z",
-  },
-  {
-    id: "evt-byebye-2026-2612",
-    slug: "bye-bye-2026-fiesta-fin-de-ano",
-    title: "BYE BYE 2026!",
-    subtitle:
-      "La Gran Fiesta de Fin de Año MAS30 · Despedimos el 2026 a pura fiesta, brindis y lluvia de papelitos",
-    category: "Fiestas",
-    date: "2026-12-26",
-    dateLabel: "sáb. 26 dic.",
-    shortDate: "26.12",
-    time: "23:30 a 06:30 hs",
-    doorsOpen: "23:30 hs",
-    venueName: "GRAN SALÓN MAS30 · FIN DE AÑO",
-    venueAddress: "Av. Figueroa Alcorta 5500, Palermo",
-    venueCity: "Buenos Aires",
-    country: "Argentina",
-    mapUrl: "https://maps.google.com/?q=Av+Figueroa+Alcorta+5500+Buenos+Aires",
-    mapEmbedUrl:
-      "https://www.google.com/maps?q=Av+Figueroa+Alcorta+5500+Buenos+Aires&output=embed",
-    flyerUrl: "/flyers/bye-bye-2026.png",
-    flyerGradient: "#AF2C75",
-    badge: "Sábado 26/12 · Fin de Año",
-    featured: true,
-    ageRestriction:
-      "Evento exclusivo para mayores de 30 años. Ingreso con DNI físico y QR.",
-    dressCode: "Elegante Fiesta / Brillos, Silver & Black",
-    description:
-      "¡Despedimos el 2026 como se merece! El sábado 26 de diciembre nos juntamos todos en BYE BYE 2026!, la fiesta de fin de año de MAS30. Conteo regresivo simbólico a medianoche, brindis, lluvia de confetti metalizado, cotillón luminoso y una selección musical demoledora con los mejores temas del año y los clásicos de siempre.",
-    highlights: [
-      "Gran brindis de despedida de año y show de confetti plateado en pista",
-      "Cotillón flúor y barras de espumantes y coctelería toda la noche",
-      "Todos los himnos de los 80s, 90s, 2000s y fiesta",
-      "Entrada general a $10.000 con código QR individual",
-    ],
-    lineup: [
-      "MAS30 All-Stars DJs (Especial Fin de Año)",
-      "Show de Luces, Confetti & Brindis 2026",
-    ],
-    ticketTiers: [
-      {
-        id: "tier-byebye-general",
-        name: "Entrada General · BYE BYE 2026!",
-        description:
-          "Acceso oficial a la fiesta de fin de año (Sábado 26/12). Incluye 1 código QR individual.",
-        price: 10000,
-        stock: 500,
-        sold: 0,
-        includes: [
-          "Acceso General +30",
-          "Copa de Brindis de Fin de Año",
-          "Código QR Individual de Puerta",
-        ],
-      },
-    ],
-    status: "ACTIVO",
-    createdAt: "2026-10-20T00:10:00Z",
-  },
-  {
-    id: "evt-fiesta-calor-0901",
-    slug: "fiesta-calor-reggaeton-clasico-modo-clap",
-    title: "FIESTA CALOR",
-    subtitle:
-      "Reggaeton Clásico & Modo Clap! · Don Omar, Daddy Yankee, Wisin & Yandel y los hits del verano",
-    category: "Fiestas",
-    date: "2027-01-09",
-    dateLabel: "sáb. 09 ene.",
-    shortDate: "09.01",
-    time: "23:30 a 06:00 hs",
-    doorsOpen: "23:30 hs",
-    venueName: "CLUB CALOR · MAS30 SUMMER",
-    venueAddress: "Av. Rafael Obligado 6150, Costanera",
-    venueCity: "Buenos Aires",
-    country: "Argentina",
-    mapUrl: "https://maps.google.com/?q=Costanera+Norte+Buenos+Aires",
-    mapEmbedUrl:
-      "https://www.google.com/maps?q=Costanera+Norte+Buenos+Aires&output=embed",
-    flyerUrl: "/flyers/fiesta-calor.png",
-    flyerGradient: "#dc2626",
-    badge: "Sábado 09/01 · Verano",
-    featured: true,
-    ageRestriction:
-      "Evento exclusivo para mayores de 30 años. Ingreso con DNI físico y QR.",
-    dressCode: "Summer Night / Flow 2000s",
-    description:
-      "¡Enero prende fuego la pista con FIESTA CALOR! Una edición especial de verano dedicada al Reggaeton Clásico de la vieja escuela (Daddy Yankee, Don Omar, Tego Calderón, Wisin & Yandel, Calle 13) y el bloque explosivo en MODO CLAP! para revivir las mejores noches de los 2000s.",
-    highlights: [
-      "Especial Reggaeton Old School (2002-2012) sin cortes",
-      "Activación MODO CLAP! a medianoche con visuales, abanicos y premios",
-      "Sector terraza de verano al aire libre + pista central climatizada",
-      "Entrada general a $10.000 con código QR individual",
-    ],
-    lineup: [
-      "DJ Set Reggaeton Clásico (La Vieja Escuela)",
-      "Especial MODO CLAP! (Himnos del Boliche 2000s)",
-      "MAS30 Summer Crew",
-    ],
-    ticketTiers: [
-      {
-        id: "tier-calor-general",
-        name: "Entrada General · FIESTA CALOR",
-        description:
-          "Acceso oficial para el Sábado 09/01 (Reggaeton Clásico & Modo Clap!). Incluye 1 código QR individual.",
-        price: 10000,
-        stock: 450,
-        sold: 0,
-        includes: [
-          "Acceso General +30",
-          "Abanico Oficial Fiesta Calor (Primeros 150)",
-          "Código QR Individual de Puerta",
-        ],
-      },
-    ],
-    status: "ACTIVO",
-    createdAt: "2026-10-20T00:15:00Z",
+    hidden: false,
+    organizerWhatsapp: "+54 9 11 3560-0764",
+    instagramUrl: "https://www.instagram.com/mastreinta.eventos/",
+    paymentAccountId: "acc-emanuel-produccion",
+    platformFeePercent: 0,
+    createdByUsername: "superadmin",
+    createdAt: "2026-10-21T00:09:03.784Z",
   },
 ];
 
@@ -634,22 +464,6 @@ export const INITIAL_INQUIRIES: InquiryItem[] = [
     isPublic: true,
     status: "RESPONDIDA",
     createdAt: "2026-10-18T19:00:00Z",
-  },
-  {
-    id: "inq-2",
-    type: "PREGUNTA_EVENTO",
-    eventId: "evt-pena-mastreinta-0612",
-    eventTitle: "La Peña MASTREINTA!",
-    name: "Natalia Pereyra",
-    email: "naty.pereyra@email.com",
-    phone: "+5491149876543",
-    message:
-      "¿En La Peña MASTREINTA! del domingo 06/12 va a haber comida para cenar temprano?",
-    reply:
-      "¡Sí Natalia! Desde las 19:00 hs tendremos sector gastronómico criollo con empanadas, sándwiches al fuego y barra de fernet y tragos antes de que arranque el baile tropical.",
-    isPublic: true,
-    status: "RESPONDIDA",
-    createdAt: "2026-10-19T16:20:00Z",
   },
 ];
 
@@ -1939,13 +1753,6 @@ function normalizeAdminUsersList(rawUsers: AdminUser[]): AdminUser[] {
             ? u.assignedEventIds
             : u.username === "admin"
             ? ["evt-halloween-3110"]
-            : u.role === "PUERTA" || role === "LECTOR_QR"
-            ? [
-                "evt-halloween-3110",
-                "evt-pena-mastreinta-0612",
-                "evt-byebye-2026-2612",
-                "evt-fiesta-calor-0901",
-              ]
             : ["evt-halloween-3110"],
         };
       })
