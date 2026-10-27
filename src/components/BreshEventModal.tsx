@@ -165,6 +165,22 @@ export default function BreshEventModal({
       `• Nombre: ${buyerName.trim() || "-"}`,
       `• WhatsApp: ${buyerPhone.trim() || "-"}`,
       `• Email: ${buyerEmail.trim() || "-"}`,
+      ...(attendees.some((a) => a.name.trim())
+        ? [
+            `• Invitados: ${attendees
+              .map((a, i) =>
+                a.name.trim() ? `QR #${i + 1}: ${a.name.trim()}` : null
+              )
+              .filter(Boolean)
+              .join(" | ")}`,
+          ]
+        : []),
+      ...(orderCode
+        ? [
+            ``,
+            `🔗 *Ver estado de mi entrada:* ${typeof window !== "undefined" ? window.location.origin : ""}/mi-entrada/${encodeURIComponent(orderCode)}`,
+          ]
+        : []),
     ]
       .filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""))
       .join("\n");
@@ -225,21 +241,21 @@ export default function BreshEventModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId: event.id,
-          tierId: selectedSpot ? undefined : selectedTier?.id,
+          tierId: selectedSpot ? undefined : (selectedTier?.id || event.ticketTiers[0]?.id),
           spotId: selectedSpot?.id,
           quantity: selectedSpot ? 1 : quantity,
-          buyerName,
-          buyerEmail,
-          buyerPhone,
-          buyerDni,
+          buyerName: buyerName.trim(),
+          buyerEmail: buyerEmail.trim().toLowerCase(),
+          buyerPhone: buyerPhone.trim(),
+          buyerDni: buyerDni.trim(),
           attendees,
           notes: selectedSpot ? `[Mesa / Sector: ${selectedSpot.name}]` : undefined,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "No se pudo registrar la reserva.");
+      if (!res.ok || !data.ok || !data.orderCode) {
+        throw new Error(data.error || "No se pudo registrar la reserva en el sistema.");
       }
 
       const orderCode = data.orderCode;
@@ -253,10 +269,11 @@ export default function BreshEventModal({
       window.open(href, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error(err);
-      // Respaldo en caso de error de conexión
-      const fallbackText = buildWhatsappOrderText();
-      const href = `https://wa.me/${waNumber}?text=${encodeURIComponent(fallbackText)}`;
-      window.open(href, "_blank", "noopener,noreferrer");
+      setPayError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo registrar la reserva en el sistema. Verificá los datos e intentá nuevamente."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -699,19 +716,32 @@ export default function BreshEventModal({
                     )}
 
                     {createdOrderCode && (
-                      <div className="p-4 rounded-md bg-[#181818] border border-[#ffb5d7]/50 text-center space-y-2">
-                        <p className="text-sm font-medium text-[#ffb5d7]">
-                          ¡Orden #{createdOrderCode} registrada correctamente!
+                      <div className="p-4 rounded-md bg-[#181818] border border-emerald-500/50 text-center space-y-2">
+                        <p className="text-sm font-semibold text-emerald-400">
+                          ✓ ¡Orden #{createdOrderCode} registrada correctamente en el sistema!
                         </p>
                         <p className="text-xs text-white/70">
-                          Se abrió WhatsApp para enviar tus datos y comprobante. Al confirmar la recepción, el organizador habilitará tus QRs.
+                          Tus datos ya están guardados en el sistema del organizador. Si no se abrió WhatsApp automáticamente, hacé clic en el botón de abajo:
                         </p>
-                        <Link
-                          href={`/mi-entrada/${encodeURIComponent(createdOrderCode)}`}
-                          className="inline-block text-xs text-[#ffb5d7] underline hover:text-white"
-                        >
-                          Ver estado de mi entrada (#{createdOrderCode})
-                        </Link>
+                        <div className="pt-1 flex flex-wrap justify-center gap-2">
+                          <a
+                            href={`https://wa.me/${(event.organizerWhatsapp || bank.whatsappSupport).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                              buildWhatsappOrderText(createdOrderCode)
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            Abrir WhatsApp para enviar comprobante
+                          </a>
+                          <Link
+                            href={`/mi-entrada/${encodeURIComponent(createdOrderCode)}`}
+                            className="inline-block text-xs text-[#ffb5d7] underline hover:text-white self-center"
+                          >
+                            Ver estado de mi entrada (#{createdOrderCode})
+                          </Link>
+                        </div>
                       </div>
                     )}
 

@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as TransferOrderBody;
     const buyerName = String(body.buyerName || "").trim();
-    const buyerEmail = String(body.buyerEmail || "").trim();
+    const buyerEmail = String(body.buyerEmail || "").trim().toLowerCase();
     const buyerPhone = String(body.buyerPhone || "").trim();
     const buyerDni = String(body.buyerDni || "").trim();
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     const created = await mutateState((state) => {
       const events = (state.events as EventItem[]) || [];
-      const ev = events.find((e) => e.id === body.eventId);
+      const ev = events.find((e) => e.id === body.eventId || e.slug === body.eventId);
       if (!ev || ev.hidden) {
         throw new Error("El evento no está disponible.");
       }

@@ -23,11 +23,12 @@ import {
 } from "lucide-react";
 import {
   createInquiry,
-  createTransferOrder,
   formatARS,
   getBankSettings,
   getEventBySlug,
   getInquiries,
+  getOrders,
+  saveOrders,
   INITIAL_SETTINGS,
   trackVisit,
 } from "@/lib/store";
@@ -74,6 +75,8 @@ export default function EventDetailPage() {
   const [paymentMethod, setPaymentMethod] = useState<"mercadopago" | "transfer">("mercadopago");
   const [payingMp, setPayingMp] = useState(false);
   const [mpError, setMpError] = useState<string | null>(null);
+  const [createdOrderCode, setCreatedOrderCode] = useState<string | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   // Preguntas sobre el Evento
   const [qName, setQName] = useState("");
@@ -211,13 +214,49 @@ export default function EventDetailPage() {
     ...(notes.trim() ? [`• Nota: ${notes.trim()}`] : []),
   ].join("\n");
 
+  const buildWhatsappOrderText = (orderCode?: string) =>
+    [
+      `¡Hola! Quiero enviar el comprobante de pago de mis entradas para *${event.title}* (${event.dateLabel}).`,
+      orderCode ? `📋 *N° de Orden:* *#${orderCode}*` : "",
+      ``,
+      `🎟 *Detalle de la compra:*`,
+      selectedSpot
+        ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
+        : `• Entrada: ${quantity}x ${selectedTier.name}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
+      ``,
+      `👤 *Mis Datos:*`,
+      `• Nombre: ${buyerName.trim() || "-"}`,
+      `• WhatsApp: ${buyerPhone.trim() || "-"}`,
+      `• Email: ${buyerEmail.trim() || "-"}`,
+      ...(attendees.some((a) => a.name.trim())
+        ? [
+            `• Invitados: ${attendees
+              .map((a, i) =>
+                a.name.trim() ? `QR #${i + 1}: ${a.name.trim()}` : null
+              )
+              .filter(Boolean)
+              .join(" | ")}`,
+          ]
+        : []),
+      ...(notes.trim() ? [`• Nota: ${notes.trim()}`] : []),
+      ...(orderCode
+        ? [
+            ``,
+            `🔗 *Ver estado de mi entrada:* ${typeof window !== "undefined" ? window.location.origin : ""}/mi-entrada/${encodeURIComponent(orderCode)}`,
+          ]
+        : []),
+    ]
+      .filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""))
+      .join("\n");
+
   const organizerWhatsappHref = `https://wa.me/${(
     event.organizerWhatsapp || bank.whatsappSupport
-  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(whatsappOrderText)}`;
+  ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(buildWhatsappOrderText(createdOrderCode || undefined))}`;
 
   const handleMercadoPagoCheckout = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setMpError(null);
+    setTransferError(null);
     if (!buyerName.trim()) {
       setMpError("Por favor completá tu Nombre y Apellido.");
       return;
@@ -262,26 +301,69 @@ export default function EventDetailPage() {
     }
   };
 
-  const handleOrderSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (buyerName.trim()) {
-      createTransferOrder({
-        event,
-        tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
-        quantity: selectedSpot ? 1 : quantity,
-        buyerName,
-        buyerDni: "",
-        buyerEmail,
-        buyerPhone,
-        transferSender: buyerName,
-        transferReference: "Transferencia / Web",
-        notes,
-        attendees,
-        spotId: selectedSpot?.id,
-        spotName: selectedSpot?.name,
-        spotPerks: selectedSpot?.perks,
-        sectorName: selectedSpot?.sectorName,
-      }).catch(() => {});
+  const handleTransferSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setTransferError(null);
+    setMpError(null);
+    if (!buyerName.trim()) {
+      setTransferError("Por favor completá tu Nombre y Apellido antes de continuar.");
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      setTransferError("Por favor completá tu número de WhatsApp antes de continuar.");
+      return;
+    }
+    if (!buyerEmail.trim() || !/^\S+@\S+\.\S+$/.test(buyerEmail.trim())) {
+      setTransferError("Por favor ingresá un Email válido para registrar la orden y enviarte los accesos.");
+      return;
+    }
+
+    setSubmittingOrder(true);
+    trackVisit("whatsapp_click", event.id);
+    const waNumber = (event.organizerWhatsapp || bank.whatsappSupport).replace(/[^0-9]/g, "");
+
+    try {
+      const res = await fetch("/api/orders/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: event.id,
+          tierId: selectedSpot ? undefined : (selectedTier?.id || event.ticketTiers[0]?.id),
+          spotId: selectedSpot?.id,
+          quantity: selectedSpot ? 1 : quantity,
+          buyerName: buyerName.trim(),
+          buyerEmail: buyerEmail.trim().toLowerCase(),
+          buyerPhone: buyerPhone.trim(),
+          buyerDni: buyerDni.trim(),
+          attendees,
+          notes: [
+            notes.trim(),
+            selectedSpot ? `[Mesa / Sector: ${selectedSpot.name}]` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.orderCode) {
+        throw new Error(data.error || "No se pudo registrar la reserva en el sistema.");
+      }
+
+      const orderCode = data.orderCode;
+      setCreatedOrderCode(orderCode);
+      if (data.order) {
+        saveOrders([data.order, ...getOrders()]);
+      }
+
+      const text = buildWhatsappOrderText(orderCode);
+      const waHref = `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`;
+      window.open(waHref, "_blank", "noopener,noreferrer");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al registrar la orden en el sistema";
+      setTransferError(msg);
+    } finally {
+      setSubmittingOrder(false);
     }
   };
 
@@ -649,9 +731,9 @@ export default function EventDetailPage() {
               {/* 3. Datos del Comprador y Emisión */}
               <form
                 onSubmit={
-                  event.paymentAccountId
+                  paymentMethod === "mercadopago" && event.paymentAccountId
                     ? handleMercadoPagoCheckout
-                    : handleOrderSubmit
+                    : handleTransferSubmit
                 }
                 className="space-y-4"
               >
@@ -670,7 +752,7 @@ export default function EventDetailPage() {
                   value={buyerName}
                   onChange={(e) => setBuyerName(e.target.value)}
                   placeholder="Nombre y Apellido *"
-                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#009ee3] focus:outline-none transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#ffb5d7] focus:outline-none transition-colors"
                 />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -680,7 +762,7 @@ export default function EventDetailPage() {
                     value={buyerPhone}
                     onChange={(e) => setBuyerPhone(e.target.value)}
                     placeholder="WhatsApp *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#009ee3] focus:outline-none transition-colors"
+                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#ffb5d7] focus:outline-none transition-colors"
                   />
                   <input
                     type="email"
@@ -688,7 +770,7 @@ export default function EventDetailPage() {
                     value={buyerEmail}
                     onChange={(e) => setBuyerEmail(e.target.value)}
                     placeholder="Email (recibirás los QRs) *"
-                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#009ee3] focus:outline-none transition-colors"
+                    className="px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white placeholder:text-[#8a8a8a] focus:border-[#ffb5d7] focus:outline-none transition-colors"
                   />
                 </div>
 
@@ -707,7 +789,7 @@ export default function EventDetailPage() {
                             handleAttendeeChange(idx, "name", e.target.value)
                           }
                           placeholder={`Nombre Invitado QR #${idx + 1}`}
-                          className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white"
+                          className="w-full px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white border border-[#2a2a2a]"
                         />
                       </div>
                     ))}
@@ -722,14 +804,170 @@ export default function EventDetailPage() {
                   className="w-full px-3.5 py-2 rounded-md bg-[#121212] border border-[#353535] text-xs text-white placeholder:text-[#8a8a8a]"
                 />
 
-                {mpError && (
-                  <div className="p-3 rounded-md bg-red-950/80 border border-red-500/40 text-red-200 text-xs">
-                    ⚠️ {mpError}
+                {/* Selector de Método de Pago si el evento tiene Mercado Pago habilitado */}
+                {event.paymentAccountId && (
+                  <div className="pt-2">
+                    <label className="text-xs uppercase text-[#8a8a8a] block mb-2">
+                      4. Elegí tu medio de pago
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-[#141414] rounded-lg border border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod("mercadopago");
+                          setTransferError(null);
+                          setMpError(null);
+                        }}
+                        className={`py-2.5 px-3 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          paymentMethod === "mercadopago"
+                            ? "bg-[#009ee3] text-white shadow-md font-bold"
+                            : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        Mercado Pago
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod("transfer");
+                          setTransferError(null);
+                          setMpError(null);
+                        }}
+                        className={`py-2.5 px-3 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          paymentMethod === "transfer"
+                            ? "bg-[#ffb5d7] text-[#1c1c1c] shadow-md font-bold"
+                            : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Transferencia (WhatsApp)
+                      </button>
+                    </div>
                   </div>
                 )}
 
-                {/* BOTÓN ÚNICO DE PAGO AUTOMÁTICO */}
-                {event.paymentAccountId ? (
+                {/* DATOS BANCARIOS (Si es transferencia o el evento no tiene MP) */}
+                {(paymentMethod === "transfer" || !event.paymentAccountId) && (
+                  <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-white/60 uppercase">
+                        Transferir Total a MASTREINTA:
+                      </span>
+                      <span className="text-lg font-semibold text-[#ffb5d7]">
+                        {formatARS(totalAmount)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-[11px] text-white/50 block">
+                          Alias Oficial
+                        </span>
+                        <span className="font-mono text-sm text-white font-bold">
+                          {bank.alias}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(bank.alias);
+                          setCopiedAlias(true);
+                          setTimeout(() => setCopiedAlias(false), 2000);
+                        }}
+                        className="px-3 py-1.5 rounded-[3px] bg-[#353535] text-white text-xs flex items-center gap-1.5 cursor-pointer hover:bg-[#404040]"
+                      >
+                        {copiedAlias ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" /> Copiar Alias
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-[11px] text-white/50 block">
+                          CBU
+                        </span>
+                        <span className="font-mono text-xs text-white/80">
+                          {bank.cbu}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(bank.cbu);
+                          setCopiedCbu(true);
+                          setTimeout(() => setCopiedCbu(false), 2000);
+                        }}
+                        className="px-3 py-1.5 rounded-[3px] bg-[#353535] text-white text-xs flex items-center gap-1.5 cursor-pointer hover:bg-[#404040]"
+                      >
+                        {copiedCbu ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" /> Copiar CBU
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-white/50 pt-0.5">
+                      Titular: {bank.accountHolder} · Banco: {bank.bankName}
+                    </p>
+                  </div>
+                )}
+
+                {/* MENSAJES DE ERROR */}
+                {mpError && (
+                  <div className="p-3 rounded-md bg-red-950/80 border border-red-500/40 text-red-200 text-xs text-center">
+                    ⚠️ {mpError}
+                  </div>
+                )}
+                {transferError && (
+                  <div className="p-3 rounded-md bg-red-950/80 border border-red-500/40 text-red-200 text-xs text-center">
+                    ⚠️ {transferError}
+                  </div>
+                )}
+
+                {/* TARJETA DE CONFIRMACIÓN DE ORDEN REGISTRADA */}
+                {createdOrderCode && (
+                  <div className="p-4 rounded-lg bg-[#181818] border border-emerald-500/60 text-center space-y-2">
+                    <p className="text-sm font-bold text-emerald-400">
+                      ✓ ¡Orden #{createdOrderCode} registrada en el sistema!
+                    </p>
+                    <p className="text-xs text-white/80">
+                      Tus datos ya están guardados en nuestro panel de control. El organizador verificará tu comprobante y autorizará tus QRs.
+                    </p>
+                    <div className="pt-2 flex flex-wrap justify-center gap-2">
+                      <a
+                        href={`https://wa.me/${(event.organizerWhatsapp || bank.whatsappSupport).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                          buildWhatsappOrderText(createdOrderCode)
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shadow-md"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Abrir WhatsApp para enviar comprobante
+                      </a>
+                      <Link
+                        href={`/mi-entrada/${encodeURIComponent(createdOrderCode)}`}
+                        className="px-3.5 py-2 rounded bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] text-xs font-semibold inline-flex items-center gap-1.5 border border-[#ffb5d7]/30"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        Ver estado de mi entrada (#{createdOrderCode})
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
+                {/* BOTONES DE ACCIÓN SEGÚN MÉTODO */}
+                {paymentMethod === "mercadopago" && event.paymentAccountId ? (
                   <div className="space-y-3 pt-2">
                     <button
                       type="submit"
@@ -749,7 +987,6 @@ export default function EventDetailPage() {
                       )}
                     </button>
 
-                    {/* Medios de Pago y Seguridad Aceptados */}
                     <div className="p-3 rounded-lg bg-[#141414] border border-white/5 space-y-1.5 text-center">
                       <p className="text-[11px] text-white/70 font-medium">
                         💳 Tarjetas de Débito y Crédito · ⚡ Transferencia (CBU/CVU) · 📱 Dinero en MP
@@ -760,65 +997,42 @@ export default function EventDetailPage() {
                       </p>
                     </div>
 
-                    {/* Link sutil a WhatsApp solo para dudas */}
                     <div className="pt-1 text-center">
-                      <a
-                        href={organizerWhatsappHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80 transition-colors"
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod("transfer")}
+                        className="inline-flex items-center gap-1.5 text-xs text-white/60 hover:text-white transition-colors cursor-pointer"
                       >
                         <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
-                        ¿Tenés alguna consulta o duda antes de pagar? Escribinos por WhatsApp
-                      </a>
+                        ¿Preferís pagar por transferencia bancaria directa (CBU/Alias)? Hacé clic acá
+                      </button>
                     </div>
                   </div>
                 ) : (
-                  /* Fallback si el evento no tiene cuenta conectada */
                   <div className="space-y-3 pt-2">
-                    <a
-                      href={organizerWhatsappHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => {
-                        trackVisit("whatsapp_click", event.id);
-                        if (buyerName.trim()) {
-                          createTransferOrder({
-                            event,
-                            tierId: selectedSpot ? selectedSpot.id : selectedTier.id,
-                            quantity: selectedSpot ? 1 : quantity,
-                            buyerName,
-                            buyerDni: "",
-                            buyerEmail,
-                            buyerPhone,
-                            transferSender: buyerName,
-                            transferReference: "Transferencia / WhatsApp",
-                            notes,
-                            attendees,
-                            spotId: selectedSpot?.id,
-                            spotName: selectedSpot?.name,
-                            spotPerks: selectedSpot?.perks,
-                            sectorName: selectedSpot?.sectorName,
-                          }).catch(() => {});
-                        }
-                      }}
-                      className="w-full py-3.5 px-4 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    <button
+                      type="submit"
+                      disabled={submittingOrder}
+                      className="w-full py-4 px-4 rounded-xl bg-gradient-to-r from-[#ffb5d7] to-[#f472b6] hover:brightness-105 active:scale-[0.99] text-[#1c1c1c] font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-xl transition-all cursor-pointer disabled:opacity-50"
                     >
-                      <MessageCircle className="w-4 h-4 text-[#1c1c1c]" />
-                      Contactar al WhatsApp del Organizador (Enviar Datos y Comprobante)
-                    </a>
+                      {submittingOrder ? (
+                        <>
+                          <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                          <span>Registrando orden en el sistema y abriendo WhatsApp...</span>
+                        </>
+                      ) : (
+                        <>
+                          <MessageCircle className="w-5 h-5 text-[#1c1c1c]" />
+                          <span>Enviar Comprobante por WhatsApp ({formatARS(totalAmount)})</span>
+                        </>
+                      )}
+                    </button>
+
+                    <p className="text-[11px] text-white/50 text-center">
+                      Al presionar se registrará tu orden en el sistema de MASTREINTA y se abrirá WhatsApp para que envíes el comprobante. El organizador verificará y autorizará tus QRs.
+                    </p>
                   </div>
                 )}
-
-                <button
-                  type="submit"
-                  disabled={submittingOrder}
-                  className="hidden w-full py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-base cursor-pointer transition-all"
-                >
-                  {submittingOrder
-                    ? "Registrando..."
-                    : `Informar Transferencia (${formatARS(totalAmount)}) y Solicitar ${totalQRs} QR${totalQRs > 1 ? "s" : ""}`}
-                </button>
               </form>
             </div>
 
