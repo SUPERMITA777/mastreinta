@@ -114,9 +114,10 @@ async function getAdminState(raw: Record<string, unknown>, admin: AdminIdentity)
     delete s.adminPin;
     out.settings = s;
   }
-  // Datos personales y códigos QR: solo se envían si el rol tiene el permiso explícito.
-  if (!(await hasPermission(admin, "canViewOrders"))) delete out.orders;
-  if (!(await hasPermission(admin, "canViewTickets"))) delete out.tickets;
+  // Datos personales y códigos QR: se envían si el rol puede ver órdenes/tickets o usar el lector QR.
+  const canScanner = await hasPermission(admin, "canUseScanner");
+  if (!(await hasPermission(admin, "canViewOrders")) && !canScanner) delete out.orders;
+  if (!(await hasPermission(admin, "canViewTickets")) && !canScanner) delete out.tickets;
   return out;
 }
 export async function GET(req: Request) {
@@ -381,6 +382,136 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (payload.action === "scan_ticket" && payload.code) {
+      const canScan =
+        isSuper ||
+        (await hasPermission(admin, "canUseScanner")) ||
+        (await hasPermission(admin, "canViewTickets"));
+      if (!canScan) {
+        return NextResponse.json(
+          { ok: false, error: "Sin permiso para validar entradas" },
+          { status: 403 }
+        );
+      }
+
+      const rawInput = String(payload.code || "").trim();
+      const clean = rawInput.toUpperCase();
+      const operatorName = String(
+        payload.operatorName || admin.fullName || "Control Puerta"
+      ).trim();
+      const operatorUsername = String(
+        payload.operatorUsername || admin.username || ""
+      ).trim();
+      const doorName = String(payload.doorName || "Puerta Principal").trim();
+
+      const scanPayload = await mutateState((state) => {
+        const tickets = (Array.isArray(state.tickets)
+          ? state.tickets
+          : []) as Array<Record<string, unknown>>;
+        const orders = (Array.isArray(state.orders)
+          ? state.orders
+          : []) as Array<Record<string, unknown>>;
+
+        const matchIdx = tickets.findIndex((t) => {
+          const qrUpper = String(t.qrCode || "").trim().toUpperCase();
+          const shortUpper = String(t.shortCode || "").trim().toUpperCase();
+          const idUpper = String(t.id || "").trim().toUpperCase();
+          const qrParts = qrUpper.split("|").map((p) => p.trim());
+          return (
+            qrUpper === clean ||
+            shortUpper === clean ||
+            idUpper === clean ||
+            (clean.length >= 4 && qrParts.includes(clean)) ||
+            (qrUpper.length > 0 && clean.includes(qrUpper))
+          );
+        });
+
+        if (matchIdx === -1) {
+          const pendingOrder = orders.find(
+            (o) =>
+              String(o.orderCode || "").trim().toUpperCase() === clean ||
+              `MAS30-${clean}` === String(o.orderCode || "").trim().toUpperCase()
+          );
+          if (pendingOrder && pendingOrder.status === "PENDIENTE") {
+            return {
+              result: {
+                outcome: "NO_ENCONTRADO",
+                message: `La orden ${pendingOrder.orderCode} (${pendingOrder.buyerName}) aún figura PENDIENTE DE APROBACIÓN.`,
+              },
+              tickets,
+            };
+          }
+          return {
+            result: {
+              outcome: "NO_ENCONTRADO",
+              message: "Código inválido o inexistente para el evento.",
+            },
+            tickets,
+          };
+        }
+
+        const match = tickets[matchIdx];
+        const status = String(match.status || "VALIDO").toUpperCase();
+
+        if (status === "ANULADO" || status === "BLOQUEADO") {
+          return {
+            result: {
+              outcome: "ANULADO",
+              message:
+                status === "BLOQUEADO"
+                  ? "Entrada bloqueada por la administración."
+                  : "Entrada anulada por la administración.",
+              ticket: match,
+            },
+            tickets,
+          };
+        }
+
+        if (status === "USADO") {
+          return {
+            result: {
+              outcome: "YA_USADO",
+              message: "Este código ya fue registrado anteriormente.",
+              ticket: match,
+              previousScannedAt: match.scannedAt,
+            },
+            tickets,
+          };
+        }
+
+        const nowIso = new Date().toISOString();
+        const updatedTicket = {
+          ...match,
+          status: "USADO",
+          scannedAt: nowIso,
+          scannedBy: operatorName,
+          scannedByName: operatorName,
+          scannedByUsername: operatorUsername,
+          scannedDoor: doorName,
+        };
+
+        const nextTickets = tickets.map((t, idx) =>
+          idx === matchIdx ? updatedTicket : t
+        );
+        state.tickets = nextTickets;
+
+        return {
+          result: {
+            outcome: "AUTORIZADO",
+            message: "Acceso validado correctamente.",
+            ticket: updatedTicket,
+          },
+          tickets: nextTickets,
+        };
+      });
+
+      return NextResponse.json({
+        ok: true,
+        result: scanPayload?.result,
+        tickets: scanPayload?.tickets,
+      });
+    }
+
     // Solo se aceptan claves conocidas del estado
     const ALLOWED = [
       "events",
@@ -510,8 +641,10 @@ export async function POST(req: Request) {
         });
       }
 
-      // Pagos online: el webhook de Mercado Pago escribe órdenes/QRs desde el servidor.
-      // Si el panel admin sube una lista desactualizada, no debe borrar lo recién creado.
+      // Pagos online y reservas por transferencia registradas en el servidor:
+      // Si el panel admin sube una lista desactualizada desde el navegador,
+      // NUNCA debemos borrar órdenes ni tickets existentes en la nube
+      // (a menos que hayan sido eliminados explícitamente con action: "delete_order").
       if (Array.isArray(incoming.orders)) {
         const cloudOrders = (Array.isArray(currentCloud.orders)
           ? currentCloud.orders
@@ -519,31 +652,21 @@ export async function POST(req: Request) {
         const incomingIds = new Set(
           (incoming.orders as Array<{ id?: string }>).map((o) => o?.id)
         );
-        const cutoff = Date.now() - 5 * 60 * 1000;
-        // Solo preservar si fue creada en los últimos 5 minutos por Mercado Pago para no perder pagos en tránsito
-        const keep = cloudOrders.filter((o) => {
-          if (incomingIds.has(o.id as string)) return false;
-          const createdTime = o.createdAt ? new Date(o.createdAt as string).getTime() : 0;
-          return o.issueType === "MERCADOPAGO_WEB" && createdTime > cutoff;
-        });
+        const keep = cloudOrders.filter((o) => !incomingIds.has(o.id as string));
         if (keep.length > 0) {
-          incoming.orders = [...keep, ...(incoming.orders as unknown[])];
+          incoming.orders = [...(incoming.orders as unknown[]), ...keep];
         }
-        if (Array.isArray(incoming.tickets)) {
-          const have = new Set(
-            (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
-          );
-          const cloudTickets = (Array.isArray(currentCloud.tickets)
-            ? currentCloud.tickets
-            : []) as Array<Record<string, unknown>>;
-          const keepTickets = cloudTickets.filter((t) => {
-            if (have.has(t.id as string)) return false;
-            const createdTime = t.createdAt ? new Date(t.createdAt as string).getTime() : 0;
-            return createdTime > cutoff;
-          });
-          if (keepTickets.length > 0) {
-            incoming.tickets = [...keepTickets, ...(incoming.tickets as unknown[])];
-          }
+      }
+      if (Array.isArray(incoming.tickets)) {
+        const have = new Set(
+          (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
+        );
+        const cloudTickets = (Array.isArray(currentCloud.tickets)
+          ? currentCloud.tickets
+          : []) as Array<Record<string, unknown>>;
+        const keepTickets = cloudTickets.filter((t) => !have.has(t.id as string));
+        if (keepTickets.length > 0) {
+          incoming.tickets = [...(incoming.tickets as unknown[]), ...keepTickets];
         }
       }
 

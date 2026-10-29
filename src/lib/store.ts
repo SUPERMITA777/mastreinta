@@ -785,6 +785,7 @@ export async function deleteEvent(eventId: string): Promise<EventItem[]> {
 export function getOrders(): OrderItem[] {
   if (typeof window === "undefined") return INITIAL_ORDERS;
   cleanLegacyStorage();
+  ensureCloudSyncStarted();
   const raw = localStorage.getItem(STORAGE_KEYS.ORDERS);
   if (!raw) {
     localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(INITIAL_ORDERS));
@@ -815,6 +816,7 @@ export function saveOrders(orders: OrderItem[]) {
 export function getTickets(): TicketQR[] {
   if (typeof window === "undefined") return INITIAL_TICKETS;
   cleanLegacyStorage();
+  ensureCloudSyncStarted();
   const raw = localStorage.getItem(STORAGE_KEYS.TICKETS);
   if (!raw) {
     localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(INITIAL_TICKETS));
@@ -1478,18 +1480,61 @@ export async function validateAndScanQR(
   operatorUsername?: string
 ): Promise<ScanValidationResult> {
   const clean = rawInput.trim().toUpperCase();
-  const tickets = getTickets();
+
+  // 1. Intentar validación atómica contra la nube (Supabase) para tener siempre la lista de QRs al día
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/cloud-store", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          action: "scan_ticket",
+          code: clean,
+          operatorName,
+          doorName,
+          operatorUsername,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tickets)) {
+          try {
+            localStorage.setItem(
+              STORAGE_KEYS.TICKETS,
+              JSON.stringify(filterOutDemoTickets(data.tickets))
+            );
+            notifyStoreUpdate();
+          } catch {
+            // ignore quota
+          }
+        }
+        if (data.result) {
+          return data.result as ScanValidationResult;
+        }
+      }
+    } catch {
+      // Fallback local si no hay conexión momentánea
+    }
+  }
+
+  let tickets = getTickets();
+  if (tickets.length === 0 && typeof window !== "undefined") {
+    await syncFromCloudStore();
+    tickets = getTickets();
+  }
 
   const match = tickets.find((t) => {
-    const qrUpper = (t.qrCode || "").toUpperCase();
-    const shortUpper = (t.shortCode || "").toUpperCase();
-    const idUpper = (t.id || "").toUpperCase();
-    const qrParts = qrUpper.split("|");
+    const qrUpper = (t.qrCode || "").trim().toUpperCase();
+    const shortUpper = (t.shortCode || "").trim().toUpperCase();
+    const idUpper = (t.id || "").trim().toUpperCase();
+    const qrParts = qrUpper.split("|").map((p) => p.trim());
     return (
       qrUpper === clean ||
       shortUpper === clean ||
       idUpper === clean ||
-      (clean.length === 4 && qrParts.includes(clean))
+      (clean.length >= 4 && qrParts.includes(clean)) ||
+      (qrUpper.length > 0 && clean.includes(qrUpper))
     );
   });
 
@@ -1506,7 +1551,7 @@ export async function validateAndScanQR(
     return {
       outcome: "NO_ENCONTRADO",
       message:
-        "Código QR o entrada inexistente en la base de datos de MAS30. Verifique el código.",
+        "Código inválido o entrada inexistente para el evento.",
     };
   }
 
@@ -1524,7 +1569,7 @@ export async function validateAndScanQR(
   if (match.status === "USADO") {
     return {
       outcome: "YA_USADO",
-      message: "¡ALERTA! Este código QR ya fue escaneado y utilizado anteriormente.",
+      message: "Este código ya fue registrado anteriormente.",
       ticket: match,
       previousScannedAt: match.scannedAt,
     };
@@ -1548,7 +1593,7 @@ export async function validateAndScanQR(
 
   return {
     outcome: "AUTORIZADO",
-    message: "ACCESO AUTORIZADO · Entrada válida y registrada en puerta.",
+    message: "ACCESO VALIDADO · Entrada válida y registrada en puerta.",
     ticket: updatedTicket,
   };
 }
@@ -1889,6 +1934,7 @@ export function canUserAccessEvent(
   const assigned = Array.isArray(user.assignedEventIds)
     ? user.assignedEventIds
     : [];
+  if (assigned.length === 0) return true;
   return isCreator || assigned.includes(event.id);
 }
 

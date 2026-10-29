@@ -150,7 +150,60 @@ export function isSuperIdentity(id: AdminIdentity | null): boolean {
   return Boolean(id && id.role === "SUPERADMIN");
 }
 
-/** Permiso efectivo del operador, leyendo los roles guardados en el servidor. */
+const DEFAULT_ROLE_PERMISSIONS: Record<string, Partial<RolePermissions>> = {
+  SUPERADMIN: {
+    canViewOrders: true,
+    canApproveOrders: true,
+    canIssueManualQR: true,
+    canManageEvents: true,
+    canDeleteEvents: true,
+    canManageUsers: true,
+    canViewAnalytics: true,
+    canViewTickets: true,
+    canViewRendicion: true,
+    canManageInquiries: true,
+    canManageSettings: true,
+    canUseScanner: true,
+    scannerOnly: false,
+    canResetScannedQR: true,
+  },
+  ADMIN: {
+    canViewOrders: true,
+    canApproveOrders: true,
+    canIssueManualQR: true,
+    canManageEvents: true,
+    canDeleteEvents: true,
+    canManageUsers: true,
+    canViewAnalytics: true,
+    canViewTickets: true,
+    canViewRendicion: true,
+    canManageInquiries: true,
+    canManageSettings: false,
+    canUseScanner: true,
+    scannerOnly: false,
+    canResetScannedQR: true,
+  },
+  CAJA_VENTAS: {
+    canViewOrders: true,
+    canApproveOrders: true,
+    canIssueManualQR: true,
+    canViewTickets: true,
+    canViewRendicion: true,
+    canUseScanner: true,
+  },
+  RRPP: {
+    canViewOrders: true,
+    canIssueManualQR: true,
+    canViewAnalytics: true,
+    canViewRendicion: true,
+  },
+  LECTOR_QR: {
+    canUseScanner: true,
+    scannerOnly: true,
+  },
+};
+
+/** Permiso efectivo del operador, leyendo los roles guardados en el servidor (con fallback a roles por defecto). */
 export async function hasPermission(
   id: AdminIdentity | null,
   perm: keyof RolePermissions
@@ -165,7 +218,11 @@ export async function hasPermission(
     name: string;
     permissions?: Partial<RolePermissions>;
   }>;
-  return Boolean(roles.find((r) => r.name === id.role)?.permissions?.[perm]);
+  const matchedRole = roles.find((r) => r.name === id.role);
+  if (matchedRole?.permissions && perm in matchedRole.permissions) {
+    return Boolean(matchedRole.permissions[perm]);
+  }
+  return Boolean(DEFAULT_ROLE_PERMISSIONS[id.role]?.[perm]);
 }
 
 /* ---------------------------- Rate limiting ---------------------------- */

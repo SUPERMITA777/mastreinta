@@ -126,6 +126,7 @@ import {
   TIMEZONE_ARGENTINA,
 } from "@/lib/dateUtils";
 import VenueMapEditor from "@/components/VenueMapEditor";
+import DoorQRScannerPage from "./scanner/page";
 
 /** Escapa texto que se interpola en HTML generado a mano (evita XSS almacenado). */
 function escapeHtml(value: unknown): string {
@@ -1613,70 +1614,7 @@ export default function AdminDashboardPage() {
 
   // ACCESO EXCLUSIVO LECTOR QR (para usuarios con rol LECTOR_QR o scannerOnly)
   if (currentUser && permissions.scannerOnly) {
-    return (
-      <div className="bg-dark-background text-white min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-lg rounded-xl bg-[#1c1c1c] border border-[#353535] p-8 text-center space-y-6 shadow-2xl">
-          <div className="h-10 px-3 rounded bg-[#f5f4f0] inline-flex items-center justify-center mx-auto overflow-hidden">
-            <img
-              src="/logo-mas30.png"
-              alt="MASTREINTA"
-              className="h-full w-auto object-contain"
-            />
-          </div>
-          <div className="space-y-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#AF2C75] text-white text-xs font-medium">
-              <ShieldCheck className="w-4 h-4" />
-              Rol: {currentUser.role} · Solo Validación de Ingresos
-            </span>
-            <h1 className="text-2xl font-normal text-white">
-              Lector QR de Puerta
-            </h1>
-            <p className="text-xs text-[#8a8a8a] max-w-md mx-auto">
-              Hola <strong>{currentUser.fullName}</strong> (@{currentUser.username}).
-              Tu usuario tiene asignado exclusivamente el{" "}
-              <strong>Lector QR de Puerta</strong> para validar ingresos. No
-              tenés acceso a modificar eventos, órdenes ni configuración.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-md bg-[#121212] border border-[#353535] text-xs text-left space-y-2">
-            <span className="text-[#8a8a8a] block uppercase text-[11px]">
-              Eventos asignados para validar ({visibleEvents.length}):
-            </span>
-            <div className="space-y-1">
-              {visibleEvents.map((ev) => (
-                <div key={ev.id} className="text-white flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#ffb5d7]" />
-                  <span>
-                    {ev.title} ({ev.dateLabel})
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <Link
-              href="/admin/scanner"
-              className="w-full sm:w-auto px-6 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 cursor-pointer hover:brightness-95"
-            >
-              <QrCode className="w-4 h-4" />
-              Abrir Lector QR de Puerta
-            </Link>
-            <button
-              type="button"
-              onClick={() => {
-                logoutAdminUser();
-                setCurrentUser(null);
-              }}
-              className="w-full sm:w-auto px-4 py-3 rounded-[3px] bg-[#353535] text-white text-xs cursor-pointer hover:bg-[#454545]"
-            >
-              Cerrar sesión
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <DoorQRScannerPage />;
   }
 
   return (
