@@ -1129,14 +1129,12 @@ export default function AdminDashboardPage() {
 
   const handleExportTicketsCSV = () => {
     const headers = [
-      "Codigo Puerta",
-      "Orden",
-      "Evento",
+      "Codigo Alfanumerico",
+      "Nombre y Apellido",
+      "WhatsApp",
       "Sector",
-      "Nombre Asistente",
-      "DNI",
+      "Evento",
       "Email",
-      "Telefono",
       "Precio Unitario",
       "Emitido Por Usuario",
       "Estado",
@@ -1146,13 +1144,11 @@ export default function AdminDashboardPage() {
     ];
     const rows = filteredTickets.map((t) => [
       t.shortCode,
-      t.orderCode,
-      `"${t.eventTitle}"`,
-      `"${t.tierName}"`,
       `"${t.holderName}"`,
-      t.holderDni,
-      `"${t.buyerEmail || "-"}"`,
       `"${t.buyerPhone || "-"}"`,
+      `"${t.tierName}"`,
+      `"${t.eventTitle}"`,
+      `"${t.buyerEmail || "-"}"`,
       t.unitPrice ?? 10000,
       `"${t.generatedByName || "Admin"} (@${t.generatedByUsername || "admin"})"`,
       t.status,
@@ -1205,15 +1201,14 @@ export default function AdminDashboardPage() {
         return `
           <tr>
             <td style="text-align:center;color:#666;">${idx + 1}</td>
-            <td style="font-family:monospace;font-weight:bold;text-align:center;">${escapeHtml(t.shortCode)}</td>
             <td><strong>${escapeHtml(t.holderName)}</strong></td>
-            <td style="font-family:monospace;">${escapeHtml(t.holderDni || "-")}</td>
-            <td>${escapeHtml(t.tierName)}</td>
+            <td style="font-family:monospace;font-size:11px;">${escapeHtml(t.buyerPhone || "-")}</td>
+            <td style="font-family:monospace;font-weight:bold;font-size:12px;text-align:center;letter-spacing:1px;background:#f3f4f6;">${escapeHtml(t.shortCode)}</td>
+            <td>${escapeHtml(t.spotName ? `${t.tierName} (${t.spotName})` : t.tierName)}</td>
             <td style="color:#555;">${escapeHtml(t.eventTitle)}</td>
-            <td style="font-family:monospace;font-size:10px;color:#777;">${escapeHtml(t.orderCode)}</td>
             <td style="text-align:center;">${statusBadge}</td>
             <td style="font-size:10px;text-align:center;color:#555;">${escapeHtml(scanTime)}</td>
-            <td style="width:70px;border-bottom:1px solid #ccc;"></td>
+            <td style="width:75px;border-bottom:1px solid #ccc;"></td>
           </tr>
         `;
       })
@@ -1224,7 +1219,7 @@ export default function AdminDashboardPage() {
       <html lang="es">
       <head>
         <meta charset="utf-8" />
-        <title>Padron-Accesos-MAS30-${getArgentinaDateKey()}</title>
+        <title>Padron-Puerta-MAS30-${getArgentinaDateKey()}</title>
         <style>
           @page {
             size: A4 landscape;
@@ -1289,9 +1284,15 @@ export default function AdminDashboardPage() {
             border-collapse: collapse;
             font-size: 10.5px;
           }
+          thead {
+            display: table-header-group;
+          }
+          tr {
+            page-break-inside: avoid;
+          }
           th {
-            background-color: #18181b;
-            color: #fff;
+            background-color: #18181b !important;
+            color: #fff !important;
             padding: 6px 8px;
             text-align: left;
             font-size: 10px;
@@ -1320,7 +1321,7 @@ export default function AdminDashboardPage() {
       <body>
         <div class="header">
           <div>
-            <h1 class="title">MASTREINTA · Padrón Oficial de Control de Accesos</h1>
+            <h1 class="title">MASTREINTA · Padrón de Accesos para Puerta</h1>
             <p class="subtitle">${eventTitleHeader}</p>
           </div>
           <div class="meta">
@@ -1341,15 +1342,14 @@ export default function AdminDashboardPage() {
           <thead>
             <tr>
               <th style="width:30px;text-align:center;">#</th>
-              <th style="width:75px;text-align:center;">Código</th>
-              <th>Nombre del Asistente</th>
-              <th style="width:85px;">DNI</th>
-              <th>Sector / Entrada</th>
+              <th>Nombre y Apellido</th>
+              <th style="width:130px;">WhatsApp</th>
+              <th style="width:110px;text-align:center;">Código (4 dígitos)</th>
+              <th style="width:130px;">Sector / Entrada</th>
               <th>Evento</th>
-              <th style="width:85px;">Orden</th>
-              <th style="width:80px;text-align:center;">Estado</th>
+              <th style="width:85px;text-align:center;">Estado</th>
               <th style="width:95px;text-align:center;">Hora Ingreso</th>
-              <th style="width:70px;text-align:center;">Firma / Check</th>
+              <th style="width:75px;text-align:center;">Firma / Check</th>
             </tr>
           </thead>
           <tbody>
@@ -1358,7 +1358,7 @@ export default function AdminDashboardPage() {
         </table>
 
         <div class="footer">
-          <span>Sistema de Validación de Tickets MASTREINTA · Documento oficial para personal de puerta y seguridad</span>
+          <span>Sistema de Validación de Tickets MASTREINTA · Padrón de accesos para control de puerta</span>
           <span>Página 1</span>
         </div>
 
@@ -1546,6 +1546,7 @@ export default function AdminDashboardPage() {
     const matchText =
       !q ||
       (t.holderName || "").toLowerCase().includes(q) ||
+      (t.buyerPhone || "").toLowerCase().includes(q) ||
       (t.holderDni || "").toLowerCase().includes(q) ||
       (t.shortCode || "").toLowerCase().includes(q) ||
       (t.orderCode || "").toLowerCase().includes(q) ||
@@ -4735,7 +4736,7 @@ export default function AdminDashboardPage() {
                   type="text"
                   value={ticketSearch}
                   onChange={(e) => setTicketSearch(e.target.value)}
-                  placeholder="Buscar por nombre, DNI, código QR o N° orden..."
+                  placeholder="Buscar por nombre, WhatsApp, código de 4 dígitos o sector..."
                   className="w-full pl-8 pr-3 py-1 bg-transparent text-xs text-white outline-none placeholder:text-[#8a8a8a]"
                 />
               </div>
@@ -4750,10 +4751,9 @@ export default function AdminDashboardPage() {
                       <th className="py-3 px-4 w-12 text-center">#</th>
                       <th className="py-3 px-4">Código</th>
                       <th className="py-3 px-4">Nombre Asistente</th>
-                      <th className="py-3 px-4">DNI</th>
+                      <th className="py-3 px-4">WhatsApp</th>
                       <th className="py-3 px-4">Evento</th>
                       <th className="py-3 px-4">Sector / Entrada</th>
-                      <th className="py-3 px-4">Orden</th>
                       <th className="py-3 px-4 text-center">Estado</th>
                       <th className="py-3 px-4 text-center">Ingreso & Puerta / Operador</th>
                       <th className="py-3 px-4 text-right">Acciones</th>
@@ -4762,7 +4762,7 @@ export default function AdminDashboardPage() {
                   <tbody className="divide-y divide-[#353535] bg-[#121212]/40">
                     {filteredTickets.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="p-8 text-center text-[#8a8a8a] italic">
+                        <td colSpan={9} className="p-8 text-center text-[#8a8a8a] italic">
                           No se encontraron accesos con los filtros aplicados.
                         </td>
                       </tr>
@@ -4802,7 +4802,7 @@ export default function AdminDashboardPage() {
                               </div>
                             </td>
                             <td className="py-3 px-4 font-mono text-white/90">
-                              {t.holderDni || "-"}
+                              {t.buyerPhone || "-"}
                             </td>
                             <td className="py-3 px-4">
                               <span className="font-medium text-white block truncate max-w-[180px]">
@@ -4814,9 +4814,6 @@ export default function AdminDashboardPage() {
                             </td>
                             <td className="py-3 px-4 text-[#ffb5d7]">
                               {t.tierName}
-                            </td>
-                            <td className="py-3 px-4 font-mono text-[#8a8a8a] text-[11px]">
-                              {t.orderCode}
                             </td>
                             <td className="py-3 px-4 text-center">
                               {isValid ? (
