@@ -6,6 +6,7 @@ import {
   newOrderId,
   uniqueOrderCode,
 } from "@/lib/mercadopago.server";
+import { getAdminSupabase } from "@/lib/cloudState.server";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +166,38 @@ export async function POST(req: Request) {
 
       return order;
     });
+
+    // Respaldo inmediato y directo en la base de datos PostgreSQL (redundancia total y prevención de pérdidas)
+    try {
+      const supabase = getAdminSupabase();
+      await supabase.from("orders").upsert(
+        {
+          id: created.id,
+          order_code: created.orderCode,
+          event_id: created.eventId,
+          event_title: created.eventTitle,
+          event_date: created.eventDateLabel,
+          event_venue: created.eventVenue,
+          buyer_name: created.buyerName,
+          buyer_dni: created.buyerDni || "",
+          buyer_email: created.buyerEmail || "",
+          buyer_phone: created.buyerPhone || "",
+          tier_id: created.tierId || "",
+          tier_name: created.tierName || "",
+          unit_price: created.unitPrice || 0,
+          quantity: created.quantity || 1,
+          total_amount: created.totalAmount || 0,
+          transfer_sender: created.transferSender || created.buyerName,
+          transfer_reference: created.transferReference || "Transferencia / WhatsApp",
+          notes: created.notes || "",
+          status: created.status || "PENDIENTE",
+          created_at: created.createdAt || new Date().toISOString(),
+        },
+        { onConflict: "order_code" }
+      );
+    } catch (pgErr) {
+      console.error("[Postgres Orders Backup] Error al respaldar orden:", pgErr);
+    }
 
     return NextResponse.json({
       ok: true,

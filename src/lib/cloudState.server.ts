@@ -17,6 +17,43 @@ export const BUCKET_NAME = "mas30-cloud-db";
 /** Bucket PRIVADO: estado completo (órdenes, tickets, usuarios, settings) y secretos. */
 export const STATE_BUCKET = "mas30-private";
 export const STATE_FILE = "mas30-state-v1.json";
+export const ANALYTICS_FILE = "mas30-analytics-v1.json";
+
+let analyticsLock: Promise<unknown> = Promise.resolve();
+
+/** Modifica exclusivamente las analíticas sin tocar ni arriesgar el archivo principal de órdenes. */
+export function mutateAnalytics<T>(
+  fn: (analytics: Record<string, unknown>) => T | Promise<T>
+): Promise<T> {
+  const run = analyticsLock.then(async () => {
+    const supabase = getAdminSupabase();
+    await ensurePrivateState();
+    let current: Record<string, unknown> = {};
+    try {
+      const { data } = await supabase.storage.from(STATE_BUCKET).download(ANALYTICS_FILE);
+      if (data) {
+        current = JSON.parse(await data.text());
+      }
+    } catch {
+      // Si aún no existe el archivo de analíticas, se crea vacío
+    }
+    const result = await fn(current);
+    if (result === null || result === undefined) return result;
+    current.updatedAt = new Date().toISOString();
+    await supabase.storage.from(STATE_BUCKET).upload(
+      ANALYTICS_FILE,
+      Buffer.from(JSON.stringify(current), "utf-8"),
+      {
+        contentType: "application/json",
+        upsert: true,
+        cacheControl: "0",
+      }
+    );
+    return result;
+  });
+  analyticsLock = run.catch(() => {});
+  return run;
+}
 
 // Secreto del servidor para firmar sesiones y autorizar llamadas internas.
 // Sin valor por defecto: si falta, se genera uno aleatorio por proceso (las sesiones no sobreviven reinicios).
@@ -89,11 +126,87 @@ export async function ensurePrivateState(): Promise<void> {
 export async function readCloudState(): Promise<Record<string, unknown> | null> {
   try {
     await ensurePrivateState();
-    const { data, error } = await getAdminSupabase()
+    const supabase = getAdminSupabase();
+    const { data, error } = await supabase
       .storage.from(STATE_BUCKET)
       .download(STATE_FILE);
     if (error || !data) return null;
-    return JSON.parse(await data.text());
+    const state: Record<string, unknown> = JSON.parse(await data.text());
+
+    // Fusión de seguridad con la tabla PostgreSQL orders (protección contra cualquier sobreescritura accidental)
+    try {
+      const { data: dbOrders } = await supabase.from("orders").select("*");
+      if (Array.isArray(dbOrders) && dbOrders.length > 0) {
+        const fileOrders = (Array.isArray(state.orders) ? state.orders : []) as Array<Record<string, unknown>>;
+        const fileMap = new Map<string, Record<string, unknown>>();
+        for (const o of fileOrders) {
+          const code = String(o.orderCode || "").trim().toUpperCase();
+          if (code) fileMap.set(code, o);
+        }
+
+        let mergedAny = false;
+        for (const row of dbOrders) {
+          const code = String(row.order_code || "").trim().toUpperCase();
+          if (!code) continue;
+          if (!fileMap.has(code)) {
+            const restoredOrder = {
+              id: row.id,
+              orderCode: row.order_code,
+              eventId: row.event_id,
+              eventTitle: row.event_title,
+              eventDateLabel: row.event_date,
+              eventVenue: row.event_venue,
+              buyerName: row.buyer_name,
+              buyerDni: row.buyer_dni || "",
+              buyerEmail: row.buyer_email || "",
+              buyerPhone: row.buyer_phone || "",
+              tierId: row.tier_id || "",
+              tierName: row.tier_name || "",
+              unitPrice: Number(row.unit_price) || 0,
+              quantity: Number(row.quantity) || 1,
+              totalQrCount: Number(row.quantity) || 1,
+              totalAmount: Number(row.total_amount) || 0,
+              transferSender: row.transfer_sender || "",
+              transferReference: row.transfer_reference || "",
+              notes: row.notes || "",
+              status: row.status || "PENDIENTE",
+              approvedAt: row.approved_at || undefined,
+              approvedByUsername: row.approved_by_username || undefined,
+              approvedByName: row.approved_by_name || undefined,
+              createdAt: row.created_at || new Date().toISOString(),
+            };
+            fileOrders.unshift(restoredOrder);
+            fileMap.set(code, restoredOrder);
+            mergedAny = true;
+          }
+        }
+        if (mergedAny) {
+          state.orders = fileOrders;
+        }
+      }
+    } catch {
+      // Ignorar fallback si la tabla no responde temporalmente
+    }
+
+    // Fusión de analíticas independientes (sin arriesgar el archivo principal de órdenes)
+    try {
+      const { data: anData } = await supabase
+        .storage.from(STATE_BUCKET)
+        .download(ANALYTICS_FILE);
+      if (anData) {
+        const customAnalytics = JSON.parse(await anData.text());
+        if (customAnalytics && typeof customAnalytics === "object") {
+          state.analytics = {
+            ...((state.analytics as Record<string, unknown>) || {}),
+            ...customAnalytics,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return state;
   } catch {
     return null;
   }

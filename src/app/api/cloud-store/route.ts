@@ -6,6 +6,7 @@ import {
   STATE_FILE,
   getAdminSupabase,
   readCloudState,
+  mutateAnalytics,
 } from "@/lib/cloudState.server";
 import { getArgentinaDateKey } from "@/lib/dateUtils";
 import {
@@ -169,8 +170,7 @@ export async function POST(req: Request) {
       const visitType = String(payload.type || "site");
       const eventId = payload.eventId ? String(payload.eventId).slice(0, 80) : "";
 
-      const analytics = await mutateState((state) => {
-        const rawAnalytics = (state.analytics || {}) as Record<string, unknown>;
+      const analytics = await mutateAnalytics((rawAnalytics) => {
         const dailyVisits = {
           ...((rawAnalytics.dailyVisits as Record<string, number>) || {}),
         };
@@ -191,11 +191,6 @@ export async function POST(req: Request) {
         let uniqueVisitors = Number(rawAnalytics.uniqueVisitors) || 0;
         let totalWhatsappClicks = Number(rawAnalytics.totalWhatsappClicks) || 0;
 
-        // Solo se cuentan eventos que existen (evita inflar el archivo con ids arbitrarios)
-        const knownEvent =
-          eventId &&
-          Array.isArray(state.events) &&
-          (state.events as EventLike[]).some((e) => e.id === eventId);
         const blank = () => ({
           views: 0,
           modalOpens: 0,
@@ -209,7 +204,7 @@ export async function POST(req: Request) {
         if (visitType === "site") {
           totalSiteVisits += 1;
           dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
-        } else if (visitType === "event_modal" && knownEvent) {
+        } else if (visitType === "event_modal" && eventId) {
           const prev = eventStats[eventId] || blank();
           const prevDaily = { ...(prev.dailyVisits || {}) };
           prevDaily[todayKey] = (prevDaily[todayKey] || 0) + 1;
@@ -220,7 +215,7 @@ export async function POST(req: Request) {
             lastVisitedAt: nowIso,
             dailyVisits: prevDaily,
           };
-        } else if (visitType === "event_page" && knownEvent) {
+        } else if (visitType === "event_page" && eventId) {
           totalSiteVisits += 1;
           dailyVisits[todayKey] = (dailyVisits[todayKey] || 0) + 1;
           const prev = eventStats[eventId] || blank();
@@ -235,7 +230,7 @@ export async function POST(req: Request) {
           };
         } else if (visitType === "whatsapp_click") {
           totalWhatsappClicks += 1;
-          if (knownEvent) {
+          if (eventId) {
             const prev = eventStats[eventId] || blank();
             eventStats[eventId] = {
               ...prev,
@@ -253,7 +248,7 @@ export async function POST(req: Request) {
           eventStats,
           updatedAt: nowIso,
         };
-        state.analytics = updated;
+        Object.assign(rawAnalytics, updated);
         return updated;
       });
 
