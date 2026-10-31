@@ -38,6 +38,13 @@ export function getAdminSupabase() {
   }
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (url, init) =>
+        fetch(url, {
+          ...init,
+          cache: "no-store",
+        }),
+    },
   });
 }
 

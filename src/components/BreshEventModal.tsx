@@ -179,7 +179,6 @@ export default function BreshEventModal({
         ? [
             ``,
             `🔗 *Ver estado de mi entrada:* ${typeof window !== "undefined" ? window.location.origin : ""}/mi-entrada/${encodeURIComponent(orderCode)}`,
-            `⚙️ *Panel Admin (Organizador - Aprobar QR):* ${typeof window !== "undefined" ? window.location.origin : ""}/admin`,
           ]
         : []),
     ]

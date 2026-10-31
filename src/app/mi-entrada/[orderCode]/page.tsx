@@ -157,12 +157,6 @@ export default function MyOrderTicketsPage() {
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/admin"
-              className="px-4 py-2 rounded-sm bg-[#353535] hover:bg-[#454545] text-[#ffb5d7] text-sm flex items-center gap-1 font-medium transition-all"
-            >
-              Panel Admin
-            </Link>
-            <Link
               href="/"
               className="px-4 py-2 rounded-sm bg-white text-black text-sm flex items-center gap-1"
             >
@@ -218,27 +212,15 @@ export default function MyOrderTicketsPage() {
           </div>
 
           {order.status === "PENDIENTE" && (
-            <div className="p-5 rounded-md bg-[#121212] border border-[#353535] space-y-4">
+            <div className="p-5 rounded-md bg-[#121212] border border-[#353535]">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-[#ffb5d7]">
                   Transferencia en revisión por el Organizador
                 </p>
                 <p className="text-xs text-[#8a8a8a]">
-                  Tu orden está registrada. Una vez que el organizador verifique tu comprobante y autorice el pago, recibirás tus{" "}
-                  {totalQRs} código{totalQRs > 1 ? "s" : ""} QR y código de 4 dígitos acá y por email.
+                  Tu orden está registrada. Una vez verificado tu pago por el organizador, tus{" "}
+                  {totalQRs} código{totalQRs > 1 ? "s" : ""} QR y código de 4 dígitos se activarán automáticamente acá y los recibirás por email.
                 </p>
-              </div>
-
-              <div className="pt-3 border-t border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <span className="text-[#8a8a8a]">
-                  ¿Sos el organizador / administrador de MAS30?
-                </span>
-                <Link
-                  href="/admin"
-                  className="px-3.5 py-2 rounded bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-semibold text-center transition-all inline-block shrink-0"
-                >
-                  Abrir Panel Admin para autorizar y emitir QRs →
-                </Link>
               </div>
             </div>
           )}

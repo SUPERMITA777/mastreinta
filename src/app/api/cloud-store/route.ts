@@ -652,19 +652,37 @@ export async function POST(req: Request) {
         const incomingIds = new Set(
           (incoming.orders as Array<{ id?: string }>).map((o) => o?.id)
         );
-        const keep = cloudOrders.filter((o) => !incomingIds.has(o.id as string));
+        const incomingCodes = new Set(
+          (incoming.orders as Array<{ orderCode?: string }>).map((o) =>
+            String(o?.orderCode || "").trim().toUpperCase()
+          )
+        );
+        const keep = cloudOrders.filter(
+          (o) =>
+            !incomingIds.has(o.id as string) &&
+            !incomingCodes.has(String(o.orderCode || "").trim().toUpperCase())
+        );
         if (keep.length > 0) {
           incoming.orders = [...(incoming.orders as unknown[]), ...keep];
         }
       }
       if (Array.isArray(incoming.tickets)) {
-        const have = new Set(
+        const haveIds = new Set(
           (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
+        );
+        const haveCodes = new Set(
+          (incoming.tickets as Array<{ shortCode?: string; qrData?: string }>).map((t) =>
+            String(t?.shortCode || t?.qrData || "").trim().toUpperCase()
+          )
         );
         const cloudTickets = (Array.isArray(currentCloud.tickets)
           ? currentCloud.tickets
           : []) as Array<Record<string, unknown>>;
-        const keepTickets = cloudTickets.filter((t) => !have.has(t.id as string));
+        const keepTickets = cloudTickets.filter(
+          (t) =>
+            !haveIds.has(t.id as string) &&
+            !haveCodes.has(String(t.shortCode || t.qrData || "").trim().toUpperCase())
+        );
         if (keepTickets.length > 0) {
           incoming.tickets = [...(incoming.tickets as unknown[]), ...keepTickets];
         }
