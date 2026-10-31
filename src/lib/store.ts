@@ -1233,6 +1233,10 @@ export async function updateOrderCustomerData(
   const target = orders.find((o) => o.id === orderId || o.orderCode === orderId);
   if (!target) throw new Error("Orden no encontrada");
 
+  const newTotal = data.totalAmount !== undefined ? Number(data.totalAmount) : target.totalAmount;
+  const qrDivisor = Math.max(1, target.totalQrCount || target.quantity || 1);
+  const newUnitPrice = Math.round(newTotal / qrDivisor);
+
   const updatedOrder: OrderItem = {
     ...target,
     buyerName: data.buyerName !== undefined ? data.buyerName.trim() : target.buyerName,
@@ -1240,7 +1244,8 @@ export async function updateOrderCustomerData(
     buyerEmail: data.buyerEmail !== undefined ? data.buyerEmail.trim() : target.buyerEmail,
     buyerDni: data.buyerDni !== undefined ? data.buyerDni.trim() : target.buyerDni,
     notes: data.notes !== undefined ? data.notes.trim() : target.notes,
-    totalAmount: data.totalAmount !== undefined ? Number(data.totalAmount) : target.totalAmount,
+    totalAmount: newTotal,
+    unitPrice: newUnitPrice,
   };
 
   const updatedOrders = orders.map((o) => (o.id === target.id ? updatedOrder : o));
@@ -1255,6 +1260,7 @@ export async function updateOrderCustomerData(
     ) {
       return {
         ...t,
+        unitPrice: newUnitPrice,
         holderName: data.buyerName && t.ticketNumber === 1 ? data.buyerName.trim() : t.holderName,
         holderDni: data.buyerDni !== undefined ? data.buyerDni.trim() : t.holderDni,
         buyerPhone: data.buyerPhone !== undefined ? data.buyerPhone.trim() : t.buyerPhone,

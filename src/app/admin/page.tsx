@@ -255,6 +255,8 @@ export default function AdminDashboardPage() {
   const [editNotes, setEditNotes] = useState("");
   const [editTotalAmount, setEditTotalAmount] = useState<number | "">("");
   const [editOrderSavedMsg, setEditOrderSavedMsg] = useState("");
+  const [inlineEditingOrderId, setInlineEditingOrderId] = useState<string | null>(null);
+  const [inlineAmount, setInlineAmount] = useState<string>("");
 
   // Estado Carga / Edición de Evento
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -690,6 +692,20 @@ export default function AdminDashboardPage() {
     setEditNotes(order.notes || "");
     setEditTotalAmount(order.totalAmount ?? 0);
     setEditOrderSavedMsg("");
+  };
+
+  
+  const handleSaveInlineAmount = async (orderId: string, e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(inlineAmount);
+    if (isNaN(val) || val < 0) return;
+    try {
+      await updateOrderCustomerData(orderId, { totalAmount: val });
+      syncAll();
+      setInlineEditingOrderId(null);
+    } catch (err) {
+      alert("Error al actualizar el monto: " + (err instanceof Error ? err.message : String(err)));
+    }
   };
 
   const handleSaveOrderCustomerData = async (e: React.FormEvent) => {
@@ -2417,218 +2433,266 @@ export default function AdminDashboardPage() {
                 return (
                   <div
                     key={order.id}
-                    className="rounded-lg bg-[#1c1c1c] p-6 space-y-4"
+                    className="rounded-lg bg-[#1c1c1c] p-4 sm:p-5 border border-[#2a2a2a] hover:border-[#3a3a3a] transition-all space-y-3"
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <span className="px-2.5 py-1 rounded-sm bg-[#353535] font-mono text-xs text-white">
-                            {order.orderCode}
+                    {/* FILA SUPERIOR: Código, Estado, Evento y Acciones Rápidas */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-[#262626]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-[#2a2a2a] font-mono text-xs text-white font-medium">
+                          {order.orderCode}
+                        </span>
+                        {order.status === "PENDIENTE" && (
+                          <span className="px-2 py-0.5 rounded bg-[#353535] text-[#ffb5d7] text-xs font-medium">
+                            Pendiente de Verificación
                           </span>
-                          {order.status === "PENDIENTE" && (
-                            <span className="px-2.5 py-1 rounded-sm bg-[#353535] text-[#ffb5d7] text-xs font-medium">
-                              Pendiente de Verificación
-                            </span>
-                          )}
-                          {order.status === "APROBADA" && (
-                            <>
-                              <span className="px-2.5 py-1 rounded-sm bg-[#AF2C75] text-white text-xs font-medium">
-                                ✓ Autorizada ({orderTickets.length} QRs emitidos)
-                              </span>
-                              <span className="px-2.5 py-1 rounded-sm bg-[#121212] border border-[#ffb5d7]/40 text-[#ffb5d7] text-xs font-medium">
-                                QR emitido por:{" "}
-                                {order.approvedByName ||
-                                  "Administrador General MAS30"}{" "}
-                                (@{order.approvedByUsername || "admin"})
-                              </span>
-                            </>
-                          )}
-                          {order.status === "RECHAZADA" && (
-                            <span className="px-2.5 py-1 rounded-sm bg-red-950 text-red-300 text-xs font-medium">
-                              Rechazada
-                            </span>
-                          )}
-                          <span className="text-xs text-[#8a8a8a]">
-                            {order.eventTitle} ({order.eventDateLabel})
+                        )}
+                        {order.status === "APROBADA" && (
+                          <span className="px-2 py-0.5 rounded bg-[#AF2C75] text-white text-xs font-medium">
+                            ✓ Autorizada ({orderTickets.length} QRs)
                           </span>
-                        </div>
+                        )}
+                        {order.status === "RECHAZADA" && (
+                          <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 text-xs font-medium">
+                            Rechazada
+                          </span>
+                        )}
+                        <span className="text-xs text-[#8a8a8a]">
+                          {order.eventTitle} ({order.eventDateLabel})
+                        </span>
+                        {order.approvedByUsername && (
+                          <span className="text-[11px] text-[#777] hidden sm:inline">
+                            · QR emitido por @{order.approvedByUsername}
+                          </span>
+                        )}
+                      </div>
 
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-medium text-white">
+                      <div className="flex items-center gap-2 ml-auto">
+                        <Link
+                          href={`/mi-entrada/${order.orderCode}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Ver link público de entrada del cliente"
+                          className="px-2.5 py-1 rounded bg-[#252525] hover:bg-[#333] text-white/80 hover:text-white text-xs flex items-center gap-1 transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Ver Entrada</span>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (confirm(`¿Eliminar la orden #${order.orderCode} y sus QRs?`)) {
+                              await deleteOrder(order.id);
+                              syncAll();
+                            }
+                          }}
+                          title="Eliminar orden y sus QRs"
+                          className="p-1.5 rounded bg-[#252525] hover:bg-red-950 text-white/40 hover:text-red-400 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* FILA MEDIA: Datos del Cliente, Entradas y Monto con Edición Rápida */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-semibold text-white">
                             {order.buyerName}
                           </h3>
                           <button
                             type="button"
                             onClick={() => handleOpenEditOrder(order)}
                             className="p-1 rounded bg-[#252525] hover:bg-[#353535] text-[#ffb5d7] cursor-pointer"
-                            title="Editar datos del cliente (nombre, teléfono, email, DNI, monto)"
+                            title="Editar datos del cliente (nombre, teléfono, email, DNI)"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Pencil className="w-3 h-3" />
                           </button>
-                        </div>
-                        <span className="text-xs font-normal text-[#8a8a8a] block">
-                          ({order.buyerDni ? `DNI ${order.buyerDni} · ` : ""}
-                          {order.buyerPhone} ·{" "}
-                          {order.buyerEmail &&
-                          !order.buyerEmail.endsWith("@mas30.com") ? (
-                            <strong className="text-white">
-                              {order.buyerEmail}
-                            </strong>
-                          ) : (
-                            <span className="text-amber-400 font-medium">
-                              Sin email (clic en Editar para cargarlo)
-                            </span>
-                          )}
-                          )
-                        </span>
-
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#8a8a8a]">
-                          <span>
-                            Tickets:{" "}
-                            <strong className="text-white">
-                              {order.quantity}x {order.tierName} (
-                              {orderTotalQRs} QR{orderTotalQRs > 1 ? "s" : ""})
-                            </strong>
+                          <span className="text-[#8a8a8a]">
+                            {order.buyerDni ? `DNI ${order.buyerDni} · ` : ""}
+                            {order.buyerPhone}
                           </span>
+                          {order.buyerEmail && !order.buyerEmail.endsWith("@mas30.com") ? (
+                            <span className="text-white/90">· {order.buyerEmail}</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditOrder(order)}
+                              className="text-amber-400 font-medium hover:underline cursor-pointer"
+                            >
+                              (Sin email · clic para agregar)
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-white/80 flex flex-wrap items-center gap-x-2">
                           <span>
-                            Total:{" "}
-                            <strong className="text-[#ffb5d7] text-sm">
+                            Tickets: <strong className="text-white">{order.quantity}x {order.tierName}</strong>{" "}
+                            <span className="text-[#8a8a8a]">({orderTotalQRs} QR{orderTotalQRs > 1 ? "s" : ""})</span>
+                          </span>
+                          {order.notes && (
+                            <span className="text-[#ffb5d7] italic">· Nota: &ldquo;{order.notes}&rdquo;</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Monto Abonado (Editable en el acto con 1 clic) */}
+                      <div className="flex items-center gap-2 shrink-0 bg-[#141414] px-3 py-1.5 rounded border border-[#2e2e2e]">
+                        <span className="text-[#8a8a8a]">Total abonado:</span>
+                        {inlineEditingOrderId === order.id ? (
+                          <form
+                            onSubmit={(e) => handleSaveInlineAmount(order.id, e)}
+                            className="flex items-center gap-1.5"
+                          >
+                            <span className="text-[#ffb5d7] font-semibold">$</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={inlineAmount}
+                              onChange={(e) => setInlineAmount(e.target.value)}
+                              className="w-24 px-2 py-0.5 rounded bg-[#222] border border-[#ffb5d7] text-white text-xs font-mono outline-none"
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              className="px-2 py-0.5 rounded bg-soft-pink text-black text-[11px] font-semibold hover:brightness-95 cursor-pointer"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInlineEditingOrderId(null)}
+                              className="px-1.5 py-0.5 rounded bg-[#333] text-white text-[11px] hover:bg-[#444] cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </form>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <strong className="text-[#ffb5d7] text-sm sm:text-base font-mono">
                               {formatARS(order.totalAmount)}
                             </strong>
-                          </span>
-                        </div>
-
-                        {order.notes && (
-                          <p className="text-xs text-[#ffb5d7]">
-                            Nota: &ldquo;{order.notes}&rdquo;
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {order.status === "PENDIENTE" && (
-                          <>
                             <button
                               type="button"
-                              onClick={() =>
-                                handleApproveOrder(order.id, order.orderCode)
-                              }
-                              className="px-4 py-2.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-xs cursor-pointer transition-all"
-                            >
-                              Autorizar Pago y Crear {orderTotalQRs} QR
-                              {orderTotalQRs > 1 ? "s" : ""}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditOrder(order)}
-                              className="px-3 py-2.5 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-                              title="Editar datos del cliente"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await rejectOrder(order.id);
-                                syncAll();
+                              onClick={() => {
+                                setInlineEditingOrderId(order.id);
+                                setInlineAmount(String(order.totalAmount ?? 0));
                               }}
-                              className="px-3 py-2.5 rounded-[3px] bg-[#353535] text-white/70 hover:text-white text-xs cursor-pointer"
-                            >
-                              Rechazar
-                            </button>
-                          </>
-                        )}
-
-                        {order.status === "APROBADA" && (
-                          <>
-                            {orderTickets.length === 0 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleGenerateMissingQRs(order.id)
-                                }
-                                className="px-3 py-2 rounded-[3px] bg-amber-950 border border-amber-600/60 text-amber-200 text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:bg-amber-900"
-                                title="Esta orden está autorizada pero no tiene QRs vinculados. Clic para generarlos ahora."
-                              >
-                                <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-                                Generar QRs Faltantes
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedOrderCode(
-                                  isExpanded ? null : order.orderCode
-                                )
-                              }
-                              className="px-3.5 py-2 rounded-[3px] bg-[#353535] hover:bg-[#444] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <QrCode className="w-4 h-4" />
-                              {isExpanded
-                                ? "Ocultar QRs"
-                                : `Ver ${orderTickets.length} QRs`}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditOrder(order)}
-                              className="px-3 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-                              title="Editar datos del comprador, email o monto"
+                              className="p-1 rounded hover:bg-[#252525] text-[#8a8a8a] hover:text-[#ffb5d7] cursor-pointer transition-colors"
+                              title="Editar monto que abonó el cliente"
                             >
                               <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                              Editar Datos
                             </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3.5 py-2 rounded-[3px] bg-soft-pink text-[#1c1c1c] text-xs font-medium flex items-center gap-1.5"
-                            >
-                              <MessageCircle className="w-4 h-4" />
-                              Enviar Código 4 Dígitos por WhatsApp
-                            </a>
+                    {/* BARRA INFERIOR DE ACCIONES: Bien organizada y proporcionada */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#262626]">
+                      {order.status === "PENDIENTE" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleApproveOrder(order.id, order.orderCode)
+                            }
+                            className="px-4 py-2 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-semibold text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Autorizar Pago y Crear {orderTotalQRs} QR
+                            {orderTotalQRs > 1 ? "s" : ""}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOrder(order)}
+                            className="px-3 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                            title="Editar datos del cliente y monto"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                            Editar Datos / Monto
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await rejectOrder(order.id);
+                              syncAll();
+                            }}
+                            className="px-3 py-2 rounded-[3px] bg-[#222] hover:bg-red-950 text-white/60 hover:text-red-300 text-xs cursor-pointer"
+                          >
+                            Rechazar
+                          </button>
+                        </>
+                      )}
 
+                      {order.status === "APROBADA" && (
+                        <>
+                          {orderTickets.length === 0 && (
                             <button
                               type="button"
-                              disabled={
-                                sendingEmailOrderCode === order.orderCode
-                              }
                               onClick={() =>
-                                handleSendOrderEmail(order, orderTickets)
+                                handleGenerateMissingQRs(order.id)
                               }
-                              className="px-3.5 py-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              className="px-3 py-1.5 rounded-[3px] bg-amber-950 border border-amber-600/60 text-amber-200 text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:bg-amber-900"
+                              title="Esta orden está autorizada pero no tiene QRs vinculados. Clic para generarlos ahora."
                             >
-                              <Mail className="w-4 h-4 text-[#ffb5d7]" />
-                              {sendingEmailOrderCode === order.orderCode
-                                ? "Enviando Email..."
-                                : "Enviar QR + Flyer por Email"}
+                              <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                              Generar QRs Faltantes
                             </button>
+                          )}
 
-                            <Link
-                              href={`/mi-entrada/${order.orderCode}`}
-                              className="px-3 py-2 rounded-[3px] bg-[#121212] text-white text-xs flex items-center gap-1"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              Link
-                            </Link>
-                          </>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedOrderCode(
+                                isExpanded ? null : order.orderCode
+                              )
+                            }
+                            className="px-3 py-1.5 rounded-[3px] bg-[#2c2c2c] hover:bg-[#3a3a3a] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                            {isExpanded
+                              ? "Ocultar QRs"
+                              : `Ver ${orderTickets.length} QRs`}
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await deleteOrder(order.id);
-                            syncAll();
-                          }}
-                          title="Eliminar orden y sus QRs"
-                          className="p-2 rounded-[3px] bg-[#121212] text-white/40 hover:text-red-400 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] text-xs font-semibold flex items-center gap-1.5 transition-all"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            Enviar WhatsApp 4 Dígitos
+                          </a>
+
+                          <button
+                            type="button"
+                            disabled={
+                              sendingEmailOrderCode === order.orderCode
+                            }
+                            onClick={() =>
+                              handleSendOrderEmail(order, orderTickets)
+                            }
+                            className="px-3 py-1.5 rounded-[3px] bg-[#2a2a2a] hover:bg-[#383838] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                            {sendingEmailOrderCode === order.orderCode
+                              ? "Enviando..."
+                              : "Enviar QR por Email"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOrder(order)}
+                            className="px-3 py-1.5 rounded-[3px] bg-[#252525] hover:bg-[#333] text-white/80 hover:text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer sm:ml-auto"
+                            title="Editar datos del comprador, email o monto"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                            Editar Datos / Monto
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     {emailStatusByOrder[order.orderCode] && (
