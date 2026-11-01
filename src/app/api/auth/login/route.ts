@@ -37,13 +37,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // Anti fuerza bruta: 8 intentos / 15 min por IP y 5 por usuario
-  if (
-    rateLimited(`login-ip:${clientIp(req)}`, 8, 15 * 60 * 1000) ||
-    rateLimited(`login-user:${user}`, 5, 15 * 60 * 1000)
-  ) {
+  // Anti fuerza bruta: permite que múltiples operadores se conecten al mismo tiempo
+  // con la misma cuenta desde distintas IPs o dispositivos sin bloquearse entre sí.
+  const ip = clientIp(req);
+  if (rateLimited(`login-ip-fail:${ip}`, 30, 15 * 60 * 1000)) {
     return NextResponse.json(
-      { ok: false, error: "Demasiados intentos. Esperá 15 minutos." },
+      { ok: false, error: "Demasiados intentos fallidos. Esperá unos minutos." },
       { status: 429 }
     );
   }
@@ -54,6 +53,8 @@ export async function POST(req: Request) {
 
   const valid = verifyPassword(pass, found?.password || DUMMY) && Boolean(found);
   if (!valid || !found) {
+    // Solo se penalizan los intentos fallidos por IP
+    rateLimited(`login-ip-fail:${ip}`, 30, 15 * 60 * 1000);
     return NextResponse.json({ ok: false, error: "Usuario o contraseña incorrectos" }, { status: 401 });
   }
 
