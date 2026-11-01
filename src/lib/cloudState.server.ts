@@ -188,6 +188,83 @@ export async function readCloudState(): Promise<Record<string, unknown> | null> 
       // Ignorar fallback si la tabla no responde temporalmente
     }
 
+    // Fusión de seguridad con la tabla PostgreSQL tickets (garantiza que todas las entradas con QR estén listas para validar)
+    try {
+      const { data: dbTickets } = await supabase.from("tickets").select("*");
+      if (Array.isArray(dbTickets) && dbTickets.length > 0) {
+        const fileTickets = (Array.isArray(state.tickets) ? state.tickets : []) as Array<Record<string, unknown>>;
+        const tMap = new Map<string, Record<string, unknown>>();
+        for (const t of fileTickets) {
+          const id = String(t.id || "").trim();
+          if (id) tMap.set(id, t);
+        }
+
+        const ordersMap = new Map<string, Record<string, unknown>>();
+        const fileOrders = (Array.isArray(state.orders) ? state.orders : []) as Array<Record<string, unknown>>;
+        for (const o of fileOrders) {
+          const code = String(o.orderCode || "").trim().toUpperCase();
+          if (code) ordersMap.set(code, o);
+        }
+
+        let mergedAnyTk = false;
+        for (const row of dbTickets) {
+          const id = String(row.id || "").trim();
+          if (!id) continue;
+          const existing = tMap.get(id);
+          if (!existing) {
+            const qrStr = String(row.qr_code || "");
+            const parts = qrStr.split("|");
+            const shortCode = parts.length >= 3 ? parts[2].trim().toUpperCase() : "";
+            const ordCode = String(row.order_code || "").trim().toUpperCase();
+            const parentOrder = ordersMap.get(ordCode);
+
+            const restoredTicket = {
+              id: row.id,
+              qrCode: row.qr_code,
+              shortCode: shortCode,
+              orderId: row.order_id,
+              orderCode: row.order_code,
+              eventId: row.event_id,
+              eventTitle: row.event_title,
+              eventDateLabel: row.event_date,
+              eventTime: (parentOrder?.eventTime as string) || "23:00",
+              eventVenue: row.event_venue,
+              tierName: row.tier_name,
+              holderName: row.holder_name,
+              holderDni: row.holder_dni || "",
+              buyerPhone: (parentOrder?.buyerPhone as string) || "",
+              buyerEmail: (parentOrder?.buyerEmail as string) || "",
+              ticketNumber: Number(row.ticket_number) || 1,
+              totalInOrder: Number(row.total_in_order) || 1,
+              unitPrice: Number(row.unit_price) || 0,
+              generatedByUsername: row.generated_by_username || "superadmin",
+              generatedByName: row.generated_by_name || "Superadministrador MASTREINTA",
+              status: row.status || "VALIDO",
+              scannedAt: row.scanned_at || undefined,
+              scannedBy: row.scanned_by || undefined,
+              createdAt: row.created_at || new Date().toISOString(),
+            };
+            fileTickets.push(restoredTicket);
+            tMap.set(id, restoredTicket);
+            mergedAnyTk = true;
+          } else {
+            // Si en PostgreSQL está marcado como USADO, sincronizar el estado
+            if (row.status === "USADO" && existing.status !== "USADO") {
+              existing.status = "USADO";
+              existing.scannedAt = row.scanned_at;
+              existing.scannedBy = row.scanned_by;
+              mergedAnyTk = true;
+            }
+          }
+        }
+        if (mergedAnyTk || !state.tickets) {
+          state.tickets = fileTickets;
+        }
+      }
+    } catch {
+      // Ignorar fallback si la tabla no responde temporalmente
+    }
+
     // Fusión de analíticas independientes (sin arriesgar el archivo principal de órdenes)
     try {
       const { data: anData } = await supabase

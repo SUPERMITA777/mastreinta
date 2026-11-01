@@ -1535,12 +1535,16 @@ export async function validateAndScanQR(
     const shortUpper = (t.shortCode || "").trim().toUpperCase();
     const idUpper = (t.id || "").trim().toUpperCase();
     const qrParts = qrUpper.split("|").map((p) => p.trim());
+    const orderUpper = (t.orderCode || "").trim().toUpperCase();
     return (
       qrUpper === clean ||
       shortUpper === clean ||
       idUpper === clean ||
+      orderUpper === clean ||
+      `MAS30-${clean}` === orderUpper ||
       (clean.length >= 4 && qrParts.includes(clean)) ||
-      (qrUpper.length > 0 && clean.includes(qrUpper))
+      (qrUpper.length > 0 && clean.includes(qrUpper)) ||
+      (shortUpper.length >= 4 && clean.includes(shortUpper))
     );
   });
 

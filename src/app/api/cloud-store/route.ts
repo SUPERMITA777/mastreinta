@@ -389,8 +389,14 @@ export async function POST(req: Request) {
         );
       }
 
-      const rawInput = String(payload.code || "").trim();
-      const clean = rawInput.toUpperCase();
+      let rawInput = String(payload.code || "").trim();
+      let clean = rawInput.toUpperCase();
+      if (clean.includes("/MI-ENTRADA/")) {
+        const urlParts = clean.split("/MI-ENTRADA/");
+        if (urlParts.length > 1) {
+          clean = urlParts[1].split(/[?#/]/)[0].trim().toUpperCase();
+        }
+      }
       const operatorName = String(
         payload.operatorName || admin.fullName || "Control Puerta"
       ).trim();
@@ -412,12 +418,16 @@ export async function POST(req: Request) {
           const shortUpper = String(t.shortCode || "").trim().toUpperCase();
           const idUpper = String(t.id || "").trim().toUpperCase();
           const qrParts = qrUpper.split("|").map((p) => p.trim());
+          const orderUpper = String(t.orderCode || "").trim().toUpperCase();
           return (
             qrUpper === clean ||
             shortUpper === clean ||
             idUpper === clean ||
+            orderUpper === clean ||
+            `MAS30-${clean}` === orderUpper ||
             (clean.length >= 4 && qrParts.includes(clean)) ||
-            (qrUpper.length > 0 && clean.includes(qrUpper))
+            (qrUpper.length > 0 && clean.includes(qrUpper)) ||
+            (shortUpper.length >= 4 && clean.includes(shortUpper))
           );
         });
 
@@ -499,6 +509,24 @@ export async function POST(req: Request) {
           tickets: nextTickets,
         };
       });
+
+      const scannedTk = scanPayload?.result?.ticket as Record<string, unknown> | undefined;
+      if (scanPayload?.result?.outcome === "AUTORIZADO" && scannedTk?.id) {
+        try {
+          const tId = String(scannedTk.id);
+          const tNow = String(scannedTk.scannedAt || new Date().toISOString());
+          await supabase
+            .from("tickets")
+            .update({
+              status: "USADO",
+              scanned_at: tNow,
+              scanned_by: operatorName,
+            })
+            .eq("id", tId);
+        } catch (dbErr) {
+          console.error("Error updating ticket in postgres:", dbErr);
+        }
+      }
 
       return NextResponse.json({
         ok: true,
