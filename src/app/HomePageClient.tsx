@@ -29,7 +29,7 @@ interface HomePageClientProps {
 }
 
 export default function HomePageClient({
-  initialEvents = INITIAL_EVENTS,
+  initialEvents = [],
   initialBank = INITIAL_SETTINGS,
 }: HomePageClientProps) {
   const router = useRouter();
@@ -58,7 +58,7 @@ export default function HomePageClient({
 
   useEffect(() => {
     // Si el servidor proveyó eventos y localStorage aún no los tiene, guardarlos
-    if (typeof window !== "undefined" && initialEvents && initialEvents.length > 0) {
+    if (typeof window !== "undefined" && initialEvents) {
       try {
         const stored = localStorage.getItem(STORAGE_KEYS.EVENTS);
         if (!stored) {
@@ -71,9 +71,7 @@ export default function HomePageClient({
 
     const sync = () => {
       const publicEvents = getPublicEvents();
-      if (publicEvents.length > 0) {
-        setEvents(publicEvents);
-      }
+      setEvents(publicEvents);
       setBank(getBankSettings());
     };
     sync();
@@ -211,91 +209,93 @@ export default function HomePageClient({
       </section>
 
       {/* 2. CARRUSEL COVERFLOW 3D DE EVENTOS DESTACADOS (#nearYou) */}
-      <div className="md:container !max-w-[1284px] mx-auto" id="nearYou">
-        <div className="relative w-full h-[560px] md:h-[680px] flex flex-col items-center justify-center overflow-hidden">
-          <div className="relative w-full h-[500px] md:h-[610px] flex items-center justify-center">
-            {events.map((event, index) => {
-              const total = events.length;
-              let offset = index - activeIndex;
-              if (offset > total / 2) offset -= total;
-              if (offset < -total / 2) offset += total;
+      {events.length > 0 && (
+        <div className="md:container !max-w-[1284px] mx-auto" id="nearYou">
+          <div className="relative w-full h-[560px] md:h-[680px] flex flex-col items-center justify-center overflow-hidden">
+            <div className="relative w-full h-[500px] md:h-[610px] flex items-center justify-center">
+              {events.map((event, index) => {
+                const total = events.length;
+                let offset = index - activeIndex;
+                if (offset > total / 2) offset -= total;
+                if (offset < -total / 2) offset += total;
 
-              const absOffset = Math.abs(offset);
-              if (absOffset > 2) return null;
+                const absOffset = Math.abs(offset);
+                if (absOffset > 2) return null;
 
-              const isActive = offset === 0;
-              const translateX = offset * 270;
-              const scale = isActive ? 1 : absOffset === 1 ? 0.86 : 0.74;
-              const zIndex = 30 - absOffset * 10;
-              const opacity = isActive ? 1 : absOffset === 1 ? 0.85 : 0.5;
+                const isActive = offset === 0;
+                const translateX = offset * 270;
+                const scale = isActive ? 1 : absOffset === 1 ? 0.86 : 0.74;
+                const zIndex = 30 - absOffset * 10;
+                const opacity = isActive ? 1 : absOffset === 1 ? 0.85 : 0.5;
 
-              return (
-                <div
-                  key={event.id}
-                  onClick={() => {
-                    if (isActive) {
-                      setSelectedModalEvent(event);
-                    } else {
-                      setActiveIndex(index);
-                    }
-                  }}
-                  style={{
-                    transform: `translateX(${translateX}px) scale(${scale})`,
-                    zIndex,
-                    opacity,
-                  }}
-                  className={`${
-                    isActive ? "bg-[#353535]" : "bg-[#1C1C1C]"
-                  } w-[90vw] max-w-[443px] h-[496px] md:h-[603px] rounded-lg overflow-hidden absolute transition-all duration-700 ease-out p-[20px] md:p-[30px] flex flex-col cursor-pointer group shadow-[0_25px_60px_rgba(0,0,0,0.75)]`}
-                >
-                  <div className="relative aspect-square w-full overflow-hidden">
-                    <BreshPosterArt event={event} variant="square" />
-                  </div>
-
-                  <div className="py-4 flex flex-col justify-between gap-2 flex-1">
-                    <div className="space-y-1.5">
-                      <h3 className="text-2xl md:text-3xl truncate font-normal text-white">
-                        {event.title}
-                      </h3>
-                      <p className="text-sm md:text-base text-[#eee]">
-                        {event.dateLabel}
-                      </p>
+                return (
+                  <div
+                    key={event.id}
+                    onClick={() => {
+                      if (isActive) {
+                        setSelectedModalEvent(event);
+                      } else {
+                        setActiveIndex(index);
+                      }
+                    }}
+                    style={{
+                      transform: `translateX(${translateX}px) scale(${scale})`,
+                      zIndex,
+                      opacity,
+                    }}
+                    className={`${
+                      isActive ? "bg-[#353535]" : "bg-[#1C1C1C]"
+                    } w-[90vw] max-w-[443px] h-[496px] md:h-[603px] rounded-lg overflow-hidden absolute transition-all duration-700 ease-out p-[20px] md:p-[30px] flex flex-col cursor-pointer group shadow-[0_25px_60px_rgba(0,0,0,0.75)]`}
+                  >
+                    <div className="relative aspect-square w-full overflow-hidden">
+                      <BreshPosterArt event={event} variant="square" />
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedModalEvent(event);
-                      }}
-                      className="cursor-pointer hover:brightness-90 transition-all bg-soft-pink text-[#1c1c1c] h-[46px] min-w-[126px] w-fit px-4 rounded-[3px] font-medium mt-2 inline-block"
-                    >
-                      Tickets
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    <div className="py-4 flex flex-col justify-between gap-2 flex-1">
+                      <div className="space-y-1.5">
+                        <h3 className="text-2xl md:text-3xl truncate font-normal text-white">
+                          {event.title}
+                        </h3>
+                        <p className="text-sm md:text-base text-[#eee]">
+                          {event.dateLabel}
+                        </p>
+                      </div>
 
-          {/* Paginación de puntos estilo Swiper Bresh */}
-          <div className="flex items-center justify-center gap-2.5 mt-4 z-30">
-            {events.map((ev, idx) => (
-              <button
-                key={ev.id}
-                type="button"
-                onClick={() => setActiveIndex(idx)}
-                aria-label={`Ir a slide ${idx + 1}`}
-                className={`h-2 rounded-full transition-all cursor-pointer ${
-                  idx === activeIndex
-                    ? "w-6 bg-[#ffb5d7]"
-                    : "w-2 bg-white/30 hover:bg-white/60"
-                }`}
-              />
-            ))}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedModalEvent(event);
+                        }}
+                        className="cursor-pointer hover:brightness-90 transition-all bg-soft-pink text-[#1c1c1c] h-[46px] min-w-[126px] w-fit px-4 rounded-[3px] font-medium mt-2 inline-block"
+                      >
+                        Tickets
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Paginación de puntos estilo Swiper Bresh */}
+            <div className="flex items-center justify-center gap-2.5 mt-4 z-30">
+              {events.map((ev, idx) => (
+                <button
+                  key={ev.id}
+                  type="button"
+                  onClick={() => setActiveIndex(idx)}
+                  aria-label={`Ir a slide ${idx + 1}`}
+                  className={`h-2 rounded-full transition-all cursor-pointer ${
+                    idx === activeIndex
+                      ? "w-6 bg-[#ffb5d7]"
+                      : "w-2 bg-white/30 hover:bg-white/60"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 3. LISTADO "Eventos de MAS30" + BARRA DE FILTROS + GRILLA DE 3 COLUMNAS */}
       <div
@@ -387,107 +387,141 @@ export default function HomePageClient({
         </div>
 
         {/* GRILLA DE 3 COLUMNAS DE TARJETAS #1c1c1c (ALTURA 580PX EN DESKTOP) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 py-4">
-          {filteredEvents.map((event) => (
-            <div
-              key={event.id}
-              onClick={() => setSelectedModalEvent(event)}
-              className="bg-[#1c1c1c] rounded-lg overflow-hidden lg:h-[580px] flex flex-col cursor-pointer group hover:bg-[#232323] transition-colors"
-            >
-              <div className="relative w-full h-[280px] lg:h-[377px] overflow-hidden">
-                <BreshPosterArt event={event} variant="square" />
-              </div>
-
-              <div className="p-[30px] flex flex-col justify-between flex-1">
-                <div className="space-y-2 mb-4 lg:mb-0">
-                  <h3 className="font-normal text-2xl text-white">
-                    {event.title}
-                  </h3>
-                  <p className="text-base text-[#8a8a8a]">{event.dateLabel}</p>
+        {filteredEvents.length === 0 ? (
+          <div className="py-20 text-center rounded-xl bg-[#1c1c1c]/60 border border-[#353535] space-y-3 my-6 p-8">
+            <p className="text-lg text-white font-medium">No hay eventos disponibles en este momento</p>
+            <p className="text-sm text-[#8a8a8a] max-w-md mx-auto">
+              Pronto estaremos publicando las nuevas fechas y locaciones. ¡Seguinos en nuestras redes oficiales para enterarte de los lanzamientos!
+            </p>
+            <div className="pt-2 flex flex-wrap justify-center gap-3">
+              <a
+                href={
+                  bank.instagramHandle
+                    ? `https://instagram.com/${bank.instagramHandle.replace(
+                        "@",
+                        ""
+                      )}`
+                    : "https://www.instagram.com/mastreinta.eventos/"
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded bg-[#353535] hover:bg-[#444] text-xs text-white transition-colors"
+              >
+                Instagram Oficial
+              </a>
+              <a
+                href={`https://wa.me/${(bank.whatsappSupport || "+5491135600764").replace(/[^0-9]/g, "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded bg-soft-pink text-[#1c1c1c] text-xs font-medium hover:brightness-95 transition-all"
+              >
+                WhatsApp MAS30
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 py-4">
+            {filteredEvents.map((event) => (
+              <div
+                key={event.id}
+                onClick={() => setSelectedModalEvent(event)}
+                className="bg-[#1c1c1c] rounded-lg overflow-hidden lg:h-[580px] flex flex-col cursor-pointer group hover:bg-[#232323] transition-colors"
+              >
+                <div className="relative w-full h-[280px] lg:h-[377px] overflow-hidden">
+                  <BreshPosterArt event={event} variant="square" />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedModalEvent(event);
-                    }}
-                    className="bg-soft-pink hover:brightness-90 transition-all text-[#1c1c1c] py-2 px-4 rounded-[3px] w-fit font-medium cursor-pointer"
-                  >
-                    Tickets
-                  </button>
+                <div className="p-[30px] flex flex-col justify-between flex-1">
+                  <div className="space-y-2 mb-4 lg:mb-0">
+                    <h3 className="font-normal text-2xl text-white">
+                      {event.title}
+                    </h3>
+                    <p className="text-base text-[#8a8a8a]">{event.dateLabel}</p>
+                  </div>
 
-                  {/* Botones de Acción Rápida: WhatsApp Organizador, Redes Sociales y Compartir */}
-                  <div
-                    className="flex items-center gap-1.5"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <a
-                      href={`https://wa.me/${(
-                        event.organizerWhatsapp || bank.whatsappSupport
-                      ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                        `¡Hola MAS30! Quiero consultar o comprar tickets para el evento *${event.title}* (${event.dateLabel}).`
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => trackVisit("whatsapp_click", event.id)}
-                      title="WhatsApp del Organizador (Consultas y compra de tickets)"
-                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] transition-colors flex items-center gap-1 text-xs"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                      <span className="hidden sm:inline">WhatsApp</span>
-                    </a>
-
-                    <a
-                      href={
-                        event.instagramUrl ||
-                        "https://instagram.com/mas30.eventos"
-                      }
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Redes Sociales del Evento"
-                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors"
-                    >
-                      <Instagram className="w-4 h-4" />
-                    </a>
-
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
                     <button
                       type="button"
-                      onClick={async () => {
-                        const shareUrl = `${window.location.origin}/eventos/${event.slug}`;
-                        if (navigator.share) {
-                          try {
-                            await navigator.share({
-                              title: `MAS30 · ${event.title}`,
-                              text: `${event.title} (${event.dateLabel}) en MAS30`,
-                              url: shareUrl,
-                            });
-                            return;
-                          } catch {
-                            // fallback copy
-                          }
-                        }
-                        navigator.clipboard.writeText(shareUrl);
-                        setSharedEventId(event.id);
-                        setTimeout(() => setSharedEventId(null), 2000);
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedModalEvent(event);
                       }}
-                      title="Compartir Evento"
-                      className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-xs"
+                      className="bg-soft-pink hover:brightness-90 transition-all text-[#1c1c1c] py-2 px-4 rounded-[3px] w-fit font-medium cursor-pointer"
                     >
-                      <Share2 className="w-4 h-4" />
-                      {sharedEventId === event.id && (
-                        <span className="text-[11px] text-[#ffb5d7]">
-                          ¡Copiado!
-                        </span>
-                      )}
+                      Tickets
                     </button>
+
+                    {/* Botones de Acción Rápida: WhatsApp Organizador, Redes Sociales y Compartir */}
+                    <div
+                      className="flex items-center gap-1.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <a
+                        href={`https://wa.me/${(
+                          event.organizerWhatsapp || bank.whatsappSupport
+                        ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                          `¡Hola MAS30! Quiero consultar o comprar tickets para el evento *${event.title}* (${event.dateLabel}).`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => trackVisit("whatsapp_click", event.id)}
+                        title="WhatsApp del Organizador (Consultas y compra de tickets)"
+                        className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] transition-colors flex items-center gap-1 text-xs"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span className="hidden sm:inline">WhatsApp</span>
+                      </a>
+
+                      <a
+                        href={
+                          event.instagramUrl ||
+                          "https://instagram.com/mas30.eventos"
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Redes Sociales del Evento"
+                        className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors"
+                      >
+                        <Instagram className="w-4 h-4" />
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const shareUrl = `${window.location.origin}/eventos/${event.slug}`;
+                          if (navigator.share) {
+                            try {
+                              await navigator.share({
+                                title: `MAS30 · ${event.title}`,
+                                text: `${event.title} (${event.dateLabel}) en MAS30`,
+                                url: shareUrl,
+                              });
+                              return;
+                            } catch {
+                              // fallback copy
+                            }
+                          }
+                          navigator.clipboard.writeText(shareUrl);
+                          setSharedEventId(event.id);
+                          setTimeout(() => setSharedEventId(null), 2000);
+                        }}
+                        title="Compartir Evento"
+                        className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-white/80 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-xs"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        {sharedEventId === event.id && (
+                          <span className="text-[11px] text-[#ffb5d7]">
+                            ¡Copiado!
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 4. SECCIÓN CTA CON FONDO DE FIESTA (ESTILO "UNIRME A BRESH CLUB" + BUSCADOR QR Y CONTACTO) */}

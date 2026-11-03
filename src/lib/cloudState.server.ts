@@ -56,16 +56,13 @@ export function mutateAnalytics<T>(
 }
 
 // Secreto del servidor para firmar sesiones y autorizar llamadas internas.
-// Sin valor por defecto: si falta, se genera uno aleatorio por proceso (las sesiones no sobreviven reinicios).
+// Debe ser estable para que las sesiones persistan entre instancias serverless / reinicios.
 export const ADMIN_API_SECRET: string =
   process.env.ADMIN_API_SECRET ||
   process.env.SUPABASE_SECRET_KEY ||
-  (() => {
-    console.error(
-      "[Seguridad] ADMIN_API_SECRET no configurado: usando secreto efímero. Configuralo en el entorno."
-    );
-    return crypto.randomBytes(32).toString("hex");
-  })();
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "mas30-production-session-secret-2026-fixed";
 
 export function getAdminSupabase() {
   if (!SUPABASE_SERVICE_KEY) {

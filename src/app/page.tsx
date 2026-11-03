@@ -11,13 +11,15 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function HomePage() {
-  let initialEvents: EventItem[] = INITIAL_EVENTS;
+  let initialEvents: EventItem[] = INITIAL_EVENTS.filter((ev) =>
+    isEventVisiblePublicly(ev)
+  );
   let initialBank: BankSettings = INITIAL_SETTINGS;
 
   try {
     const cloud = await readCloudState();
     if (cloud) {
-      if (Array.isArray(cloud.events) && cloud.events.length > 0) {
+      if (Array.isArray(cloud.events)) {
         initialEvents = (cloud.events as EventItem[]).filter((ev) =>
           isEventVisiblePublicly(ev)
         );

@@ -695,10 +695,22 @@ export function getPublicEvents(): EventItem[] {
   return getEvents().filter((ev) => isEventVisiblePublicly(ev, now));
 }
 
-export async function toggleEventHidden(eventId: string): Promise<EventItem[]> {
+export type EventMutationResult = EventItem[] & {
+  ok: boolean;
+  error?: string;
+  events: EventItem[];
+};
+
+export async function toggleEventHidden(eventId: string): Promise<EventMutationResult> {
   const current = getEvents();
   const target = current.find((e) => e.id === eventId);
-  if (!target) return current;
+  if (!target) {
+    return Object.assign([...current], {
+      ok: false,
+      error: "Evento no encontrado",
+      events: current,
+    });
+  }
   const updatedEvent: EventItem = {
     ...target,
     hidden: !target.hidden,
@@ -724,7 +736,7 @@ export function saveEvents(events: EventItem[]) {
 export async function upsertEvent(
   event: EventItem,
   creatorUsername?: string
-): Promise<EventItem[]> {
+): Promise<EventMutationResult> {
   const current = getEvents();
   const existing = current.find((e) => e.id === event.id);
   const finalEvent: EventItem = {
@@ -765,9 +777,13 @@ export async function upsertEvent(
   }
 
   notifyStoreUpdate();
-  await pushToCloudStore({ events: updated });
+  const cloudRes = await pushToCloudStore({ events: updated });
 
-  return updated;
+  return Object.assign([...updated], {
+    ok: cloudRes.ok,
+    error: cloudRes.error,
+    events: updated,
+  });
 }
 
 export async function deleteEvent(eventId: string): Promise<EventItem[]> {

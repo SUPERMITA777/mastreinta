@@ -94,9 +94,13 @@ export function isSameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
   if (!origin) return false; // sin Origin no se aceptan mutaciones (los navegadores siempre lo envían)
   try {
-    const host = req.headers.get("host");
-    if (!host) return false;
-    return new URL(origin).host === host;
+    const originHost = new URL(origin).host.toLowerCase();
+    const hostHeader = (req.headers.get("host") || "").toLowerCase();
+    const forwardedHost = (req.headers.get("x-forwarded-host") || "").toLowerCase();
+    return (
+      originHost === hostHeader ||
+      (Boolean(forwardedHost) && originHost === forwardedHost)
+    );
   } catch {
     return false;
   }

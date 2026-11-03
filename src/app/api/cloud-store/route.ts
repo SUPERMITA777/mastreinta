@@ -719,9 +719,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: errorMsg }, { status: 400 });
     }
 
-    if (incoming.settings) {
+    if (incoming.events || incoming.settings) {
       try {
         revalidatePath("/", "layout");
+        revalidatePath("/");
+        revalidatePath("/eventos");
       } catch {
         // ignore
       }

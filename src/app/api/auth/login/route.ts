@@ -60,7 +60,17 @@ export async function POST(req: Request) {
 
   const { password: _omit, ...safeUser } = found;
   void _omit;
+  const cookieVal = createSessionCookieValue(found.username);
   const res = NextResponse.json({ ok: true, user: { ...safeUser, password: "" } });
-  res.headers.append("Set-Cookie", sessionCookieHeader(createSessionCookieValue(found.username)));
+  res.cookies.set({
+    name: "mas30_session",
+    value: cookieVal,
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 12 * 3600,
+  });
+  res.headers.append("Set-Cookie", sessionCookieHeader(cookieVal));
   return res;
 }

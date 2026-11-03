@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   Ban,
   BarChart3,
@@ -313,7 +314,10 @@ export default function AdminDashboardPage() {
       includes: ["Acceso General +30", "Código QR Individual"],
     },
   ]);
-  const [eventSavedMsg, setEventSavedMsg] = useState(false);
+  const [eventSavedMsg, setEventSavedMsg] = useState<string>("");
+  const [eventErrorMsg, setEventErrorMsg] = useState<string>("");
+  const [isSavingEvent, setIsSavingEvent] = useState(false);
+  const [togglingEventId, setTogglingEventId] = useState<string | null>(null);
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [editingInquiryId, setEditingInquiryId] = useState<string | null>(null);
@@ -956,7 +960,17 @@ export default function AdminDashboardPage() {
 
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!evTitle.trim() || !evVenueName.trim()) return;
+    if (!evTitle.trim()) {
+      setEventErrorMsg("Por favor ingresá el nombre del evento.");
+      return;
+    }
+    if (!evVenueName.trim()) {
+      setEventErrorMsg("Por favor ingresá el nombre del predio o club.");
+      return;
+    }
+    setIsSavingEvent(true);
+    setEventErrorMsg("");
+    setEventSavedMsg("");
     const slug = evTitle
       .toLowerCase()
       .normalize("NFD")
@@ -1034,7 +1048,16 @@ export default function AdminDashboardPage() {
         : new Date().toISOString(),
     };
 
-    await upsertEvent(newEvent, currentUser?.username);
+    const res = await upsertEvent(newEvent, currentUser?.username);
+    setIsSavingEvent(false);
+
+    if (!res.ok) {
+      setEventErrorMsg(
+        `⚠ Error al guardar el evento: ${res.error || "No se pudo sincronizar en el servidor."} Tus datos no se perdieron, por favor verificá tu sesión o intentá de nuevo.`
+      );
+      return;
+    }
+
     syncAll();
     setEditingEventId(null);
     setEvTitle("");
@@ -1049,8 +1072,12 @@ export default function AdminDashboardPage() {
     setEvPublishAt("");
     setEvPaymentAccountId("");
     setEvFeePercent("0");
-    setEventSavedMsg(true);
-    setTimeout(() => setEventSavedMsg(false), 3500);
+    setEventSavedMsg(
+      editingEventId
+        ? "✓ Cambios del evento guardados con éxito."
+        : "✓ Evento publicado con éxito en la cartelera."
+    );
+    setTimeout(() => setEventSavedMsg(""), 5000);
   };
 
   const handleLoadEventToEdit = (ev: EventItem) => {
@@ -1598,6 +1625,7 @@ export default function AdminDashboardPage() {
                 required
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
+                autoComplete="username"
                 placeholder="Ingresá tu usuario"
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
               />
@@ -1612,6 +1640,7 @@ export default function AdminDashboardPage() {
                 required
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
+                autoComplete="current-password"
                 placeholder="••••••••"
                 className="w-full px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-sm text-white outline-none focus:border-[#ffb5d7]"
               />
@@ -2995,9 +3024,15 @@ export default function AdminDashboardPage() {
               </div>
 
               {eventSavedMsg && (
-                <div className="p-3.5 rounded bg-[#353535] text-xs text-[#ffb5d7] flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Evento publicado en la cartelera.
+                <div className="p-3.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{eventSavedMsg}</span>
+                </div>
+              )}
+              {eventErrorMsg && (
+                <div className="p-3.5 rounded bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{eventErrorMsg}</span>
                 </div>
               )}
 
@@ -3644,9 +3679,14 @@ export default function AdminDashboardPage() {
                 <div className="flex flex-col sm:flex-row items-center gap-3">
                   <button
                     type="submit"
-                    className="w-full sm:flex-1 py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 text-[#1c1c1c] font-medium text-sm cursor-pointer"
+                    disabled={isSavingEvent}
+                    className="w-full sm:flex-1 py-3.5 rounded-[3px] bg-soft-pink hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed text-[#1c1c1c] font-medium text-sm cursor-pointer transition-all flex items-center justify-center gap-2"
                   >
-                    {editingEventId ? "Guardar Cambios" : "Publicar Evento"}
+                    {isSavingEvent
+                      ? "Guardando y sincronizando..."
+                      : editingEventId
+                      ? "Guardar Cambios"
+                      : "Publicar Evento"}
                   </button>
 
                   {editingEventId && (permissions.canDeleteEvents || isSuper) && (
@@ -3827,9 +3867,16 @@ export default function AdminDashboardPage() {
 
                         <button
                           type="button"
+                          disabled={togglingEventId === ev.id}
                           onClick={async () => {
-                            await toggleEventHidden(ev.id);
-                            syncAll();
+                            setTogglingEventId(ev.id);
+                            const res = await toggleEventHidden(ev.id);
+                            setTogglingEventId(null);
+                            if (!res.ok) {
+                              alert("No se pudo cambiar la visibilidad: " + (res.error || "Error de red"));
+                            } else {
+                              syncAll();
+                            }
                           }}
                           className={`px-2.5 py-1 rounded-sm text-xs flex items-center gap-1 cursor-pointer ${
                             ev.hidden
