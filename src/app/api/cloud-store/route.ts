@@ -650,7 +650,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // --- Dinero: solo el SUPERADMIN puede cambiar cuenta destino y comisión ---
+      // --- Dinero: solo el SUPERADMIN puede cambiar cuenta destino y la comisión retenida de plataforma ---
       if (Array.isArray(incoming.events) && !isSuper) {
         const prevEvents = (Array.isArray(currentCloud.events)
           ? currentCloud.events
@@ -661,7 +661,6 @@ export async function POST(req: Request) {
             ...ev,
             paymentAccountId: prev?.paymentAccountId,
             platformFeePercent: prev?.platformFeePercent,
-            serviceFeePercent: prev?.serviceFeePercent,
           };
         });
       }

@@ -1899,6 +1899,16 @@ export default function AdminDashboardPage() {
                         visible: permissions.canViewOrders,
                       },
                       {
+                        id: "eventos" as AdminTab,
+                        label: "Configuración & Cobro MP",
+                        icon: Calendar,
+                        visible: permissions.canManageEvents,
+                        onClick: () => {
+                          handleLoadEventToEdit(selectedEvent);
+                          setActiveTab("eventos");
+                        },
+                      },
+                      {
                         id: "tickets" as AdminTab,
                         label: "Accesos QR",
                         count: visibleTickets.filter((t) => t.eventId === selectedEvent.id).length,
@@ -1925,16 +1935,6 @@ export default function AdminDashboardPage() {
                         count: analytics.eventStats[selectedEvent.id]?.views || 0,
                         icon: BarChart3,
                         visible: permissions.canViewAnalytics,
-                      },
-                      {
-                        id: "eventos" as AdminTab,
-                        label: "Configuración Evento",
-                        icon: Calendar,
-                        visible: permissions.canManageEvents,
-                        onClick: () => {
-                          handleLoadEventToEdit(selectedEvent);
-                          setActiveTab("eventos");
-                        },
                       },
                       {
                         id: "consultas" as AdminTab,
@@ -2136,6 +2136,20 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
 
+                  {permissions.canManageEvents && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleLoadEventToEdit(selectedEvent);
+                        setActiveTab("eventos");
+                      }}
+                      className="p-2 rounded-lg bg-[#AF2C75]/25 hover:bg-[#AF2C75]/40 border border-[#AF2C75]/60 text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer font-medium"
+                      title="Configurar precios, Mercado Pago y cobro del servicio"
+                    >
+                      <Settings className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                      <span>Configurar Evento & MP</span>
+                    </button>
+                  )}
                   <Link
                     href={`/eventos/${selectedEvent.slug}`}
                     target="_blank"
@@ -3378,20 +3392,26 @@ export default function AdminDashboardPage() {
                   </div>
                   <div>
                     <label className="block text-xs text-[#8a8a8a] mb-1">
-                      Cobro del servicio (%): porcentaje adicional que se suma al precio cuando el cliente paga con Mercado Pago
+                      Cobro del servicio (%): porcentaje adicional que se suma al pagar con Mercado Pago
                     </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={evServiceFee}
-                      onChange={(e) => setEvServiceFee(e.target.value)}
-                      disabled={!isSuper}
-                      placeholder="0"
-                      className="w-full sm:w-40 px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white disabled:opacity-50"
-                    />
-                    <p className="text-[11px] text-[#8a8a8a] mt-1">
-                      Máximo 30%. Ej: entrada de $10.000 con 5% → el cliente paga $10.500 con Mercado Pago ($10.000 por transferencia).
-                      {!isSuper && " Solo el Superadmin puede modificarlo."}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={evServiceFee}
+                        onChange={(e) => setEvServiceFee(e.target.value)}
+                        placeholder="0"
+                        className="w-full sm:w-32 px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white font-mono"
+                      />
+                      <span className="text-xs text-white font-bold">%</span>
+                      {Number(evServiceFee.replace(",", ".")) > 0 && (
+                        <span className="text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-700/50 px-2.5 py-1 rounded">
+                          ✓ Se sumará un {evServiceFee}% al total y se verá como ítem &quot;Cargo por servicio&quot; en Mercado Pago
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[#8a8a8a] mt-1.5">
+                      Máximo 30%. Ejemplo: entrada de $10.000 con {Number(evServiceFee.replace(",", ".")) || 0}% → en Mercado Pago el cliente verá $10.000 entrada + cargo por servicio = total a pagar con MP (por transferencia directa sigue pagando el precio base sin recargo).
                     </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

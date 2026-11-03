@@ -248,6 +248,15 @@ export async function connectAccountFromCode(
 /* API de pagos                                                        */
 /* ------------------------------------------------------------------ */
 
+export interface MpPreferenceItem {
+  id: string;
+  title: string;
+  quantity: number;
+  unit_price: number;
+  currency_id?: string;
+  description?: string;
+}
+
 export interface MpPreferenceInput {
   accessToken: string;
   title: string;
@@ -259,6 +268,7 @@ export interface MpPreferenceInput {
   buyerName: string;
   siteUrl: string;
   expiresAt: string;
+  items?: MpPreferenceItem[];
 }
 
 export async function createPreference(input: MpPreferenceInput) {
@@ -269,16 +279,29 @@ export async function createPreference(input: MpPreferenceInput) {
   const back = `${publicBase}/pago/resultado?ref=${encodeURIComponent(
     input.externalReference
   )}&t=${encodeURIComponent(orderAccessToken(input.externalReference))}`;
+
+  const preferenceItems =
+    input.items && input.items.length > 0
+      ? input.items.map((it) => ({
+          id: it.id,
+          title: it.title.slice(0, 250),
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          currency_id: it.currency_id || "ARS",
+          ...(it.description ? { description: it.description } : {}),
+        }))
+      : [
+          {
+            id: input.externalReference,
+            title: input.title.slice(0, 250),
+            quantity: 1,
+            unit_price: input.amount,
+            currency_id: "ARS",
+          },
+        ];
+
   const body: Record<string, unknown> = {
-    items: [
-      {
-        id: input.externalReference,
-        title: input.title.slice(0, 250),
-        quantity: 1,
-        unit_price: input.amount,
-        currency_id: "ARS",
-      },
-    ],
+    items: preferenceItems,
     payer: { email: input.buyerEmail, name: input.buyerName },
     external_reference: input.externalReference,
     notification_url: `${publicBase}/api/mp/webhook?acc=${encodeURIComponent(

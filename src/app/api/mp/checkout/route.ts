@@ -209,6 +209,26 @@ export async function POST(req: Request) {
       if (!account) {
         throw new CheckoutError("La cuenta de cobro del evento no está conectada.", 409);
       }
+      const mpItems = [
+        {
+          id: `${created.order.id}-ticket`,
+          title: `${created.eventTitle} · ${created.order.tierName}`,
+          quantity: created.order.quantity,
+          unit_price: created.order.unitPrice,
+          currency_id: "ARS",
+        },
+      ];
+
+      if (created.order.serviceFee && created.order.serviceFee > 0) {
+        mpItems.push({
+          id: `${created.order.id}-service-fee`,
+          title: "Cargo por servicio",
+          quantity: 1,
+          unit_price: created.order.serviceFee,
+          currency_id: "ARS",
+        });
+      }
+
       const pref = await createPreference({
         accessToken: account.accessToken,
         title: `${created.eventTitle} · ${created.order.tierName} x${created.order.quantity}`,
@@ -220,6 +240,7 @@ export async function POST(req: Request) {
         buyerName,
         siteUrl,
         expiresAt,
+        items: mpItems,
       });
       const isTestAccount =
         account.id.includes("test") ||
