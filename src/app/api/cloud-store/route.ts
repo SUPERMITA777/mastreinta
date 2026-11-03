@@ -50,8 +50,9 @@ function getSanitizedPublicState(raw: Record<string, unknown>) {
         ...rest
       } = ev;
       void _u;
-      void _p;
       void _f;
+      // Se expone solo si el pago online está disponible, nunca la cuenta en sí
+      rest.mpAvailable = Boolean(_p) && ev.mpEnabled !== false;
       const venueMap = rest.venueMap as
         | { spots?: Array<Record<string, unknown>> }
         | undefined;
@@ -660,6 +661,7 @@ export async function POST(req: Request) {
             ...ev,
             paymentAccountId: prev?.paymentAccountId,
             platformFeePercent: prev?.platformFeePercent,
+            serviceFeePercent: prev?.serviceFeePercent,
           };
         });
       }

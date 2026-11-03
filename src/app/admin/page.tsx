@@ -288,6 +288,8 @@ export default function AdminDashboardPage() {
   // Cobros online (Mercado Pago)
   const [evPaymentAccountId, setEvPaymentAccountId] = useState("");
   const [evFeePercent, setEvFeePercent] = useState("0");
+  const [evMpEnabled, setEvMpEnabled] = useState(true);
+  const [evServiceFee, setEvServiceFee] = useState("0");
   const [mpAccounts, setMpAccounts] = useState<
     { id: string; label: string; mpUserId: string; email?: string }[]
   >([]);
@@ -482,19 +484,33 @@ export default function AdminDashboardPage() {
     (i) => !i.eventId || i.eventId === "ALL" || visibleEventIds.has(i.eventId)
   );
 
-  const pendingOrdersCount = visibleOrders.filter(
+  // Encabezado: si se está gestionando un evento, solo se cuentan sus datos
+  const scopedEvents = selectedEvent ? [selectedEvent] : visibleEvents;
+  const scopedOrders = selectedEvent
+    ? visibleOrders.filter((o) => o.eventId === selectedEvent.id)
+    : visibleOrders;
+  const scopedTickets = selectedEvent
+    ? visibleTickets.filter((t) => t.eventId === selectedEvent.id)
+    : visibleTickets;
+  const scopedInquiries = selectedEvent
+    ? visibleInquiries.filter(
+        (i) => i.eventId === selectedEvent.id || !i.eventId || i.eventId === "ALL"
+      )
+    : visibleInquiries;
+
+  const pendingOrdersCount = scopedOrders.filter(
     (o) => o.status === "PENDIENTE"
   ).length;
-  const approvedRevenue = visibleOrders
+  const approvedRevenue = scopedOrders
     .filter((o) => o.status === "APROBADA")
     .reduce((acc, o) => acc + o.totalAmount, 0);
-  const pendingRevenue = visibleOrders
+  const pendingRevenue = scopedOrders
     .filter((o) => o.status === "PENDIENTE")
     .reduce((acc, o) => acc + o.totalAmount, 0);
-  const scannedTicketsCount = visibleTickets.filter(
+  const scannedTicketsCount = scopedTickets.filter(
     (t) => t.status === "USADO"
   ).length;
-  const pendingInquiriesCount = visibleInquiries.filter(
+  const pendingInquiriesCount = scopedInquiries.filter(
     (i) => i.status === "PENDIENTE"
   ).length;
 
@@ -1036,6 +1052,11 @@ export default function AdminDashboardPage() {
         evInstagramUrl.trim() || "https://instagram.com/mas30.eventos",
       tiktokUrl: evTiktokUrl.trim() || undefined,
       paymentAccountId: evPaymentAccountId || undefined,
+      mpEnabled: evMpEnabled,
+      serviceFeePercent: Math.min(
+        30,
+        Math.max(0, Number(evServiceFee.replace(",", ".")) || 0)
+      ),
       platformFeePercent: Math.min(
         50,
         Math.max(0, Number(evFeePercent.replace(",", ".")) || 0)
@@ -1069,9 +1090,13 @@ export default function AdminDashboardPage() {
     setEvDescription("");
     setEvTexts({ ...EVENT_TEXT_DEFAULTS });
     setEvHidden(false);
+    setEvMpEnabled(true);
+    setEvServiceFee("0");
     setEvPublishAt("");
     setEvPaymentAccountId("");
     setEvFeePercent("0");
+    setEvMpEnabled(true);
+    setEvServiceFee("0");
     setEventSavedMsg(
       editingEventId
         ? "✓ Cambios del evento guardados con éxito."
@@ -1116,6 +1141,8 @@ export default function AdminDashboardPage() {
     setEvTiktokUrl(ev.tiktokUrl || "");
     setEvPaymentAccountId(ev.paymentAccountId || "");
     setEvFeePercent(String(ev.platformFeePercent ?? 0));
+    setEvMpEnabled(ev.mpEnabled !== false);
+    setEvServiceFee(String(ev.serviceFeePercent ?? 0));
     setEvLineupText(ev.lineup.join("\n"));
     setEvTiers(ev.ticketTiers);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1776,7 +1803,7 @@ export default function AdminDashboardPage() {
               {formatARS(approvedRevenue)}
             </p>
             <p className="text-xs text-[#8a8a8a]">
-              {visibleOrders.filter((o) => o.status === "APROBADA").length} órdenes aprobadas
+              {scopedOrders.filter((o) => o.status === "APROBADA").length} órdenes aprobadas
             </p>
           </div>
 
@@ -1785,7 +1812,7 @@ export default function AdminDashboardPage() {
               Tickets Vendidos / Disponibles
             </span>
             <p className="text-3xl font-normal text-white">
-              {visibleEvents.reduce(
+              {scopedEvents.reduce(
                 (acc, ev) =>
                   acc +
                   ev.ticketTiers.reduce(
@@ -1795,12 +1822,12 @@ export default function AdminDashboardPage() {
                 0
               )}{" "}
               <span className="text-sm text-[#ffb5d7]">
-                ({visibleTickets.length} QRs · {scannedTicketsCount} en puerta)
+                ({scopedTickets.length} QRs · {scannedTicketsCount} en puerta)
               </span>
             </p>
             <p className="text-xs text-emerald-400">
               Disponibles:{" "}
-              {visibleEvents.reduce(
+              {scopedEvents.reduce(
                 (acc, ev) =>
                   acc +
                   ev.ticketTiers.reduce(
@@ -1823,7 +1850,7 @@ export default function AdminDashboardPage() {
               Preguntas & Contactos
             </span>
             <p className="text-3xl font-normal text-white">
-              {visibleInquiries.length}
+              {scopedInquiries.length}
             </p>
             <p className="text-xs text-[#ffb5d7]">
               {pendingInquiriesCount} sin responder
@@ -3325,6 +3352,48 @@ export default function AdminDashboardPage() {
                       Falta configurar MP_CLIENT_ID y MP_CLIENT_SECRET en el servidor.
                     </p>
                   )}
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded bg-[#1c1c1c] border border-[#353535]">
+                    <div>
+                      <p className="text-xs text-white font-medium">
+                        Pago con Mercado Pago:{" "}
+                        <span className={evMpEnabled ? "text-emerald-400" : "text-red-300"}>
+                          {evMpEnabled ? "HABILITADO" : "DESHABILITADO"}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-[#8a8a8a]">
+                        Si lo deshabilitás, este evento solo acepta transferencia / WhatsApp.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEvMpEnabled((v) => !v)}
+                      className={`px-3.5 py-2 rounded text-xs font-medium cursor-pointer transition-colors ${
+                        evMpEnabled
+                          ? "bg-red-950/80 border border-red-600/40 text-red-200 hover:bg-red-900"
+                          : "bg-emerald-600 text-white hover:bg-emerald-500"
+                      }`}
+                    >
+                      {evMpEnabled ? "DESHABILITAR" : "HABILITAR"}
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8a8a8a] mb-1">
+                      Cobro del servicio (%): porcentaje adicional que se suma al precio cuando el cliente paga con Mercado Pago
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={evServiceFee}
+                      onChange={(e) => setEvServiceFee(e.target.value)}
+                      disabled={!isSuper}
+                      placeholder="0"
+                      className="w-full sm:w-40 px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white disabled:opacity-50"
+                    />
+                    <p className="text-[11px] text-[#8a8a8a] mt-1">
+                      Máximo 30%. Ej: entrada de $10.000 con 5% → el cliente paga $10.500 con Mercado Pago ($10.000 por transferencia).
+                      {!isSuper && " Solo el Superadmin puede modificarlo."}
+                    </p>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2">
                       <label className="block text-xs text-[#8a8a8a] mb-1">

@@ -110,6 +110,9 @@ export interface EventItem {
   createdByUsername?: string; // Usuario que creó el evento
   paymentAccountId?: string; // Cuenta de Mercado Pago que recibe el dinero de este evento
   platformFeePercent?: number; // Comisión de la plataforma en % (0 = sin comisión)
+  mpEnabled?: boolean; // Interruptor de pago con Mercado Pago (undefined = habilitado si hay cuenta)
+  serviceFeePercent?: number; // Cargo por servicio (%) que se suma al precio al pagar con Mercado Pago
+  mpAvailable?: boolean; // Solo en la versión pública: indica si se puede pagar con Mercado Pago
   venueMap?: VenueMapConfig; // Configuración del mapa del lugar, sectores y mesas reservables
   createdAt: string;
 }
@@ -197,6 +200,7 @@ export interface OrderItem {
   paymentStatus?: string; // approved, pending, rejected, etc.
   paymentMethod?: string; // credit_card, debit_card, account_money, bank_transfer...
   platformFee?: number; // Comisión retenida por la plataforma (ARS)
+  serviceFee?: number; // Cargo por servicio sumado al pagar con Mercado Pago (ARS, incluido en totalAmount)
   expiresAt?: string; // Vencimiento de la reserva si no se paga
   createdAt: string;
 }
@@ -300,3 +304,20 @@ export interface SiteAnalytics {
   updatedAt?: string;
 }
 
+
+/** ¿Se puede pagar este evento con Mercado Pago? (sirve para la vista pública y la del operador) */
+export function isMpAvailable(ev: {
+  paymentAccountId?: string;
+  mpEnabled?: boolean;
+  mpAvailable?: boolean;
+}): boolean {
+  if (ev.mpEnabled === false) return false;
+  if (typeof ev.mpAvailable === "boolean") return ev.mpAvailable;
+  return Boolean(ev.paymentAccountId);
+}
+
+/** Cargo por servicio de Mercado Pago (ARS) sobre un monto base. Misma fórmula en cliente y servidor. */
+export function mpServiceFee(base: number, percent?: number): number {
+  const pct = Math.min(30, Math.max(0, Number(percent) || 0));
+  return Math.round(base * pct) / 100;
+}

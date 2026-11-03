@@ -39,6 +39,7 @@ import {
   OrderAttendeeInput,
   VenueSpot,
 } from "@/lib/types";
+import { isMpAvailable, mpServiceFee } from "@/lib/types";
 import BreshPosterArt from "@/components/BreshPosterArt";
 import EventPriceText from "@/components/EventPriceText";
 import VenueMapViewer from "@/components/VenueMapViewer";
@@ -94,7 +95,7 @@ export default function EventDetailPage() {
       }
       setBank(getBankSettings());
       if (found) {
-        if (found.paymentAccountId) {
+        if (isMpAvailable(found)) {
           setPaymentMethod("mercadopago");
         } else {
           setPaymentMethod("transfer");
@@ -178,6 +179,9 @@ export default function EventDetailPage() {
   const totalAmount = selectedSpot
     ? selectedSpot.price
     : (selectedTier?.price || 0) * quantity;
+  const mpAvailable = event ? isMpAvailable(event) : false;
+  const mpFee = mpServiceFee(totalAmount, event?.serviceFeePercent);
+  const mpTotal = totalAmount + mpFee;
 
   const handleAttendeeChange = (
     idx: number,
@@ -731,7 +735,7 @@ export default function EventDetailPage() {
               {/* 3. Datos del Comprador y Emisión */}
               <form
                 onSubmit={
-                  paymentMethod === "mercadopago" && event.paymentAccountId
+                  paymentMethod === "mercadopago" && mpAvailable
                     ? handleMercadoPagoCheckout
                     : handleTransferSubmit
                 }
@@ -742,7 +746,7 @@ export default function EventDetailPage() {
                     3. Tus Datos para los Tickets
                   </span>
                   <span className="text-lg font-medium text-[#ffb5d7]">
-                    Total: {formatARS(totalAmount)}
+                    Total: {formatARS(paymentMethod === "mercadopago" && mpAvailable ? mpTotal : totalAmount)}
                   </span>
                 </div>
 
@@ -805,7 +809,7 @@ export default function EventDetailPage() {
                 />
 
                 {/* Selector de Método de Pago si el evento tiene Mercado Pago habilitado */}
-                {event.paymentAccountId && (
+                {mpAvailable && (
                   <div className="pt-2">
                     <label className="text-xs uppercase text-[#8a8a8a] block mb-2">
                       4. Elegí tu medio de pago
@@ -848,7 +852,7 @@ export default function EventDetailPage() {
                 )}
 
                 {/* DATOS BANCARIOS (Si es transferencia o el evento no tiene MP) */}
-                {(paymentMethod === "transfer" || !event.paymentAccountId) && (
+                {(paymentMethod === "transfer" || !mpAvailable) && (
                   <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-white/60 uppercase">
@@ -967,7 +971,7 @@ export default function EventDetailPage() {
                 )}
 
                 {/* BOTONES DE ACCIÓN SEGÚN MÉTODO */}
-                {paymentMethod === "mercadopago" && event.paymentAccountId ? (
+                {paymentMethod === "mercadopago" && mpAvailable ? (
                   <div className="space-y-3 pt-2">
                     <button
                       type="submit"
@@ -982,11 +986,16 @@ export default function EventDetailPage() {
                       ) : (
                         <>
                           <CreditCard className="w-5 h-5" />
-                          <span>Pagar {formatARS(totalAmount)} · Continuar</span>
+                          <span>Pagar {formatARS(mpTotal)} · Continuar</span>
                         </>
                       )}
                     </button>
 
+                    {mpFee > 0 && (
+                      <p className="text-[11px] text-white/60 text-center">
+                        Incluye {formatARS(mpFee)} de cargo por servicio de Mercado Pago ({formatARS(totalAmount)} + {formatARS(mpFee)}). Por transferencia directa pagás {formatARS(totalAmount)}.
+                      </p>
+                    )}
                     <div className="p-3 rounded-lg bg-[#141414] border border-white/5 space-y-1.5 text-center">
                       <p className="text-[11px] text-white/70 font-medium">
                         💳 Tarjetas de Débito y Crédito · ⚡ Transferencia (CBU/CVU) · 📱 Dinero en MP

@@ -24,6 +24,7 @@ import {
   OrderAttendeeInput,
   VenueSpot,
 } from "@/lib/types";
+import { isMpAvailable, mpServiceFee } from "@/lib/types";
 import {
   createInquiry,
   createTransferOrder,
@@ -150,6 +151,9 @@ export default function BreshEventModal({
   const totalAmount = selectedSpot
     ? selectedSpot.price
     : (selectedTier?.price || 0) * quantity;
+  const mpAvailable = isMpAvailable(event);
+  const mpFee = mpServiceFee(totalAmount, event.serviceFeePercent);
+  const mpTotal = totalAmount + mpFee;
 
   const buildWhatsappOrderText = (orderCode?: string) =>
     [
@@ -688,7 +692,7 @@ export default function BreshEventModal({
                       />
                     </div>
 
-                    {event.paymentAccountId && (
+                    {mpAvailable && (
                       <>
                         <button
                           type="button"
@@ -698,10 +702,15 @@ export default function BreshEventModal({
                         >
                           {paying
                             ? "Redirigiendo a Mercado Pago..."
-                            : `Pagar ${formatARS(totalAmount)} con tarjeta o transferencia`}
+                            : `Pagar ${formatARS(mpTotal)} con tarjeta o transferencia`}
                         </button>
                         {payError && (
                           <p className="text-xs text-red-300">{payError}</p>
+                        )}
+                        {mpFee > 0 && (
+                          <p className="text-[11px] text-white/60 text-center">
+                            Incluye {formatARS(mpFee)} de cargo por servicio de Mercado Pago.
+                          </p>
                         )}
                         <p className="text-[11px] text-white/50 text-center">
                           Pago seguro con Mercado Pago. Recibís tus QR por email al acreditarse.

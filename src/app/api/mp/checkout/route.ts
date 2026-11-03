@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { mpServiceFee } from "@/lib/types";
 import type { EventItem, OrderAttendeeInput, OrderItem } from "@/lib/types";
 import { clientIp, rateLimited } from "@/lib/adminAuth.server";
 import {
@@ -63,6 +64,12 @@ export async function POST(req: Request) {
       const ev = events.find((e) => e.id === body.eventId);
       if (!ev || ev.hidden) throw new CheckoutError("Evento no disponible.", 404);
       if (ev.status === "AGOTADO") throw new CheckoutError("Evento agotado.", 409);
+      if (ev.mpEnabled === false) {
+        throw new CheckoutError(
+          "El pago con Mercado Pago está deshabilitado para este evento.",
+          409
+        );
+      }
       if (!ev.paymentAccountId) {
         throw new CheckoutError(
           "Este evento todavía no tiene el pago online habilitado.",
@@ -104,15 +111,19 @@ export async function POST(req: Request) {
       }
 
       const unitPrice = spot ? spot.price : tier!.price;
-      const totalAmount = spot ? spot.price : tier!.price * quantity;
-      if (!(totalAmount > 0)) {
+      const baseAmount = spot ? spot.price : tier!.price * quantity;
+      if (!(baseAmount > 0)) {
         throw new CheckoutError("Este ticket no requiere pago online.");
       }
       const qrPerUnit = spot ? spot.capacity : Math.max(1, Number(tier!.qrCount) || 1);
       const totalQr = spot ? spot.capacity : quantity * qrPerUnit;
 
+      // Cargo por servicio: se suma al precio que paga el comprador
+      const serviceFee = mpServiceFee(baseAmount, ev.serviceFeePercent);
+      const totalAmount = Math.round((baseAmount + serviceFee) * 100) / 100;
+
       const pct = Math.min(50, Math.max(0, Number(ev.platformFeePercent) || 0));
-      const platformFee = Math.round(totalAmount * pct) / 100;
+      const platformFee = Math.round(baseAmount * pct) / 100;
 
       const buyerDni = String(body.buyerDni || "").trim();
       const attendees: OrderAttendeeInput[] = Array.from({ length: totalQr }, (_, i) => {
@@ -161,6 +172,7 @@ export async function POST(req: Request) {
         issueType: "MERCADOPAGO_WEB",
         paymentAccountId: ev.paymentAccountId,
         platformFee,
+        serviceFee,
         expiresAt,
         createdAt: new Date().toISOString(),
       };
