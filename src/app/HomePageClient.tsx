@@ -34,7 +34,10 @@ export default function HomePageClient({
 }: HomePageClientProps) {
   const router = useRouter();
   const [events, setEvents] = useState<EventItem[]>(initialEvents);
-  const [bank, setBank] = useState<BankSettings>(initialBank);
+  const [bank, setBank] = useState<BankSettings>({
+    ...INITIAL_SETTINGS,
+    ...initialBank,
+  });
   const [sharedEventId, setSharedEventId] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [topTab, setTopTab] = useState<"TODOS" | "CERCA" | "FIESTAS">("TODOS");
