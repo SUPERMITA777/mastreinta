@@ -128,6 +128,7 @@ import {
 } from "@/lib/dateUtils";
 import VenueMapEditor from "@/components/VenueMapEditor";
 import DoorQRScannerPage from "./scanner/page";
+import AdminClientsSection from "@/components/AdminClientsSection";
 
 /** Escapa texto que se interpola en HTML generado a mano (evita XSS almacenado). */
 function escapeHtml(value: unknown): string {
@@ -147,6 +148,7 @@ type AdminTab =
   | "mapa"
   | "visitas"
   | "tickets"
+  | "clientes"
   | "consultas"
   | "usuarios_roles"
   | "configuracion";
@@ -525,6 +527,7 @@ export default function AdminDashboardPage() {
       { id: "mapa", allowed: permissions.canManageEvents },
       { id: "visitas", allowed: permissions.canViewAnalytics },
       { id: "tickets", allowed: permissions.canViewTickets },
+      { id: "clientes", allowed: permissions.canViewOrders || isSuper },
       { id: "consultas", allowed: permissions.canManageInquiries },
       { id: "usuarios_roles", allowed: isSuper || permissions.canManageUsers },
       { id: "configuracion", allowed: permissions.canManageSettings },
@@ -1899,6 +1902,17 @@ export default function AdminDashboardPage() {
                         visible: permissions.canViewOrders,
                       },
                       {
+                        id: "clientes" as AdminTab,
+                        label: "Clientes del Evento",
+                        count: new Set(
+                          visibleOrders
+                            .filter((o) => o.eventId === selectedEvent.id)
+                            .map((o) => o.buyerDni || o.buyerEmail || o.buyerPhone || o.buyerName)
+                        ).size,
+                        icon: UserCheck,
+                        visible: permissions.canViewOrders || isSuper,
+                      },
+                      {
                         id: "eventos" as AdminTab,
                         label: "Configuración & Cobro MP",
                         icon: Calendar,
@@ -1965,6 +1979,17 @@ export default function AdminDashboardPage() {
                         icon: Calendar,
                         visible: true,
                         onClick: () => setActiveTab("hub_eventos"),
+                      },
+                      {
+                        id: "clientes" as AdminTab,
+                        label: "Directorio de Clientes",
+                        count: new Set(
+                          visibleOrders.map(
+                            (o) => o.buyerDni || o.buyerEmail || o.buyerPhone || o.buyerName
+                          )
+                        ).size,
+                        icon: UserCheck,
+                        visible: permissions.canViewOrders || isSuper,
                       },
                       {
                         id: "consultas" as AdminTab,
@@ -2064,6 +2089,8 @@ export default function AdminDashboardPage() {
                       ? "Visitas & Estadísticas"
                       : activeTab === "tickets"
                       ? "Accesos QR"
+                      : activeTab === "clientes"
+                      ? "Directorio de Clientes"
                       : activeTab === "consultas"
                       ? "Preguntas & Contactos"
                       : activeTab === "usuarios_roles"
@@ -5124,6 +5151,23 @@ export default function AdminDashboardPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB CLIENTES: DIRECTORIO Y HISTORIAL DE CLIENTES */}
+        {activeTab === "clientes" && (
+          <AdminClientsSection
+            orders={visibleOrders}
+            tickets={visibleTickets}
+            events={visibleEvents}
+            selectedEventId={selectedEvent?.id || null}
+            onSendOrderEmail={handleSendOrderEmail}
+            onApproveOrder={async (orderId) => {
+              const ord = orders.find((o) => o.id === orderId);
+              if (ord) {
+                await handleApproveOrder(ord.id, ord.orderCode);
+              }
+            }}
+          />
         )}
 
         {/* TAB 4: CREAR, EDITAR Y RESPONDER PREGUNTAS Y RESPUESTAS */}
