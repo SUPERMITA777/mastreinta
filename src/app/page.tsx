@@ -7,7 +7,7 @@ export const revalidate = 0;
 
 /** Misma regla que isEventVisiblePublicly (store.ts es "use client" y no se puede usar acá). */
 function isVisible(ev: EventItem, now = new Date()): boolean {
-  if (ev.hidden) return false;
+  if (ev.hidden || ev.archived || ev.status === "ARCHIVADO") return false;
   if (ev.publishAt && ev.publishAt.trim()) {
     const launch = new Date(ev.publishAt).getTime();
     if (!Number.isNaN(launch) && launch > now.getTime()) return false;

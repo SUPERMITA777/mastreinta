@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Ban,
   BarChart3,
@@ -90,6 +92,7 @@ import {
   saveAdminRoles,
   saveAdminUsers,
   saveBankSettings,
+  toggleEventArchived,
   toggleEventHidden,
   updateEventVenueMap,
   updateTicketStatus,
@@ -225,6 +228,7 @@ export default function AdminDashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("TODOS");
   const [orderEventFilter, setOrderEventFilter] = useState<string>("TODOS");
+  const [hubFilter, setHubFilter] = useState<"activos" | "archivados" | "todos">("activos");
   const [orderSearch, setOrderSearch] = useState("");
   const [expandedOrderCode, setExpandedOrderCode] = useState<string | null>(
     null
@@ -515,6 +519,41 @@ export default function AdminDashboardPage() {
   const pendingInquiriesCount = scopedInquiries.filter(
     (i) => i.status === "PENDIENTE"
   ).length;
+
+  // Cantidad real de entradas vendidas (órdenes aprobadas o QRs emitidos) para el evento seleccionado o todos
+  const approvedTicketsSold = scopedOrders
+    .filter((o) => o.status === "APROBADA")
+    .reduce((sum, o) => sum + (Number(o.quantity) || 1), 0);
+  const totalSoldTickets = Math.max(approvedTicketsSold, scopedTickets.length);
+
+  // Cantidad real de entradas reservadas (órdenes pendientes de pago por transferencia)
+  const pendingTicketsReserved = scopedOrders
+    .filter((o) => o.status === "PENDIENTE")
+    .reduce((sum, o) => sum + (Number(o.quantity) || 1), 0);
+
+  // Stock total de entradas configuradas
+  const totalStockCapacity = scopedEvents.reduce(
+    (acc, ev) =>
+      acc +
+      ev.ticketTiers.reduce((s, t) => s + (Number(t.stock) || 0), 0),
+    0
+  );
+
+  // Entradas disponibles reales (Stock total - Vendidas - Reservadas pendientes)
+  const availableTicketsStock = Math.max(
+    0,
+    totalStockCapacity - totalSoldTickets - pendingTicketsReserved
+  );
+
+  const handleToggleArchive = async (ev: EventItem) => {
+    const isArchived = Boolean(ev.archived || ev.status === "ARCHIVADO");
+    const msg = isArchived
+      ? `¿Desarchivar el evento "${ev.title}"?\n\nVolverá a figurar en el listado de eventos activos.`
+      : `¿Archivar el evento "${ev.title}"?\n\nEl evento dejará de mostrarse en la web pública, pero todos sus datos (ventas, padrón de QRs, clientes y recaudación) quedarán guardados intactos en el sistema.`;
+    if (!window.confirm(msg)) return;
+    await toggleEventArchived(ev.id);
+    syncAll();
+  };
 
   // Ajuste automático de pestaña activa según permisos del rol conectado
   useEffect(() => {
@@ -1043,11 +1082,16 @@ export default function AdminDashboardPage() {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean),
-      ticketTiers: evTiers,
+      ticketTiers: editingEventId ? evTiers : evTiers.map((t) => ({ ...t, sold: 0 })),
       venueMap: editingEventId
         ? events.find((x) => x.id === editingEventId)?.venueMap || createDefaultVenueMap()
         : createDefaultVenueMap(),
-      status: "ACTIVO",
+      status: editingEventId
+        ? events.find((x) => x.id === editingEventId)?.status || "ACTIVO"
+        : "ACTIVO",
+      archived: editingEventId
+        ? Boolean(events.find((x) => x.id === editingEventId)?.archived)
+        : false,
       hidden: evHidden,
       publishAt: evPublishAt.trim() || undefined,
       organizerWhatsapp: evOrganizerWhatsapp.trim() || "+5491155553030",
@@ -1072,6 +1116,7 @@ export default function AdminDashboardPage() {
         : new Date().toISOString(),
     };
 
+    saveBankSettings(bankSettings);
     const res = await upsertEvent(newEvent, currentUser?.username);
     setIsSavingEvent(false);
 
@@ -1815,36 +1860,18 @@ export default function AdminDashboardPage() {
               Tickets Vendidos / Disponibles
             </span>
             <p className="text-3xl font-normal text-white">
-              {scopedEvents.reduce(
-                (acc, ev) =>
-                  acc +
-                  ev.ticketTiers.reduce(
-                    (s, t) => s + (Number(t.sold) || 0),
-                    0
-                  ),
-                0
-              )}{" "}
+              {totalSoldTickets}{" "}
               <span className="text-sm text-[#ffb5d7]">
                 ({scopedTickets.length} QRs · {scannedTicketsCount} en puerta)
               </span>
             </p>
             <p className="text-xs text-emerald-400">
-              Disponibles:{" "}
-              {scopedEvents.reduce(
-                (acc, ev) =>
-                  acc +
-                  ev.ticketTiers.reduce(
-                    (s, t) =>
-                      s +
-                      Math.max(
-                        0,
-                        (Number(t.stock) || 0) - (Number(t.sold) || 0)
-                      ),
-                    0
-                  ),
-                0
-              )}{" "}
-              entradas en stock
+              Disponibles: {availableTicketsStock} entradas en stock
+              {pendingTicketsReserved > 0 && (
+                <span className="text-[#ffb5d7] font-medium">
+                  {" "}· {pendingTicketsReserved} reservadas
+                </span>
+              )}
             </p>
           </div>
 
@@ -1914,7 +1941,7 @@ export default function AdminDashboardPage() {
                       },
                       {
                         id: "eventos" as AdminTab,
-                        label: "Configuración & Cobro MP",
+                        label: "Configuración & Medios de Pago",
                         icon: Calendar,
                         visible: permissions.canManageEvents,
                         onClick: () => {
@@ -2126,6 +2153,12 @@ export default function AdminDashboardPage() {
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#AF2C75]/20 text-[#ffb5d7] border border-[#AF2C75]/40 font-mono">
                         {selectedEvent.badge || selectedEvent.dateLabel}
                       </span>
+                      {(selectedEvent.archived || selectedEvent.status === "ARCHIVADO") && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-600/50 flex items-center gap-1 font-mono">
+                          <Archive className="w-3 h-3" />
+                          Archivado
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-[#8a8a8a] flex items-center gap-1.5 mt-0.5">
                       <MapPin className="w-3.5 h-3.5 text-[#ffb5d7]" />
@@ -2164,18 +2197,42 @@ export default function AdminDashboardPage() {
                   </div>
 
                   {permissions.canManageEvents && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleLoadEventToEdit(selectedEvent);
-                        setActiveTab("eventos");
-                      }}
-                      className="p-2 rounded-lg bg-[#AF2C75]/25 hover:bg-[#AF2C75]/40 border border-[#AF2C75]/60 text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer font-medium"
-                      title="Configurar precios, Mercado Pago y cobro del servicio"
-                    >
-                      <Settings className="w-3.5 h-3.5 text-[#ffb5d7]" />
-                      <span>Configurar Evento & MP</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleLoadEventToEdit(selectedEvent);
+                          setActiveTab("eventos");
+                        }}
+                        className="p-2 rounded-lg bg-[#AF2C75]/25 hover:bg-[#AF2C75]/40 border border-[#AF2C75]/60 text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer font-medium"
+                        title="Configurar precios, pagos (Alias/CBU/MP) y detalles del evento"
+                      >
+                        <Settings className="w-3.5 h-3.5 text-[#ffb5d7]" />
+                        <span>Configurar Pagos & Evento</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleArchive(selectedEvent)}
+                        className={`p-2 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer font-medium border ${
+                          selectedEvent.archived || selectedEvent.status === "ARCHIVADO"
+                            ? "bg-amber-950/80 hover:bg-amber-900 border-amber-600/50 text-amber-300"
+                            : "bg-[#222] hover:bg-[#2c2c2c] border-[#353535] text-white/80 hover:text-white"
+                        }`}
+                        title={
+                          selectedEvent.archived || selectedEvent.status === "ARCHIVADO"
+                            ? "Desarchivar evento para que vuelva a estar activo"
+                            : "Archivar evento (no borra ningún dato, solo lo retira de la web pública)"
+                        }
+                      >
+                        <Archive className="w-3.5 h-3.5 text-amber-400" />
+                        <span>
+                          {selectedEvent.archived || selectedEvent.status === "ARCHIVADO"
+                            ? "Desarchivar"
+                            : "Archivar"}
+                        </span>
+                      </button>
+                    </>
                   )}
                   <Link
                     href={`/eventos/${selectedEvent.slug}`}
@@ -2204,7 +2261,45 @@ export default function AdminDashboardPage() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3 w-full md:w-auto">
+                  <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                    {/* Filtros Activos / Archivados */}
+                    <div className="flex items-center gap-1 p-1 bg-[#121212] border border-[#2e2e2e] rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setHubFilter("activos")}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                          hubFilter === "activos"
+                            ? "bg-soft-pink text-[#1c1c1c]"
+                            : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        Activos ({visibleEvents.filter((e) => !e.archived && e.status !== "ARCHIVADO").length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHubFilter("archivados")}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                          hubFilter === "archivados"
+                            ? "bg-amber-400 text-[#1c1c1c]"
+                            : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        <Archive className="w-3 h-3" />
+                        Archivados ({visibleEvents.filter((e) => e.archived || e.status === "ARCHIVADO").length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHubFilter("todos")}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                          hubFilter === "todos"
+                            ? "bg-white/20 text-white"
+                            : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        Todos ({visibleEvents.length})
+                      </button>
+                    </div>
+
                     {permissions.canManageEvents && (
                       <button
                         type="button"
@@ -2234,7 +2329,14 @@ export default function AdminDashboardPage() {
 
                 {/* GRID DE EVENTOS HABILITADOS */}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {visibleEvents.map((ev) => {
+                  {visibleEvents
+                    .filter((ev) => {
+                      const isArchived = Boolean(ev.archived || ev.status === "ARCHIVADO");
+                      if (hubFilter === "activos") return !isArchived;
+                      if (hubFilter === "archivados") return isArchived;
+                      return true;
+                    })
+                    .map((ev) => {
                     const evOrders = orders.filter((o) => o.eventId === ev.id);
                     const evApprovedRevenue = evOrders
                       .filter((o) => o.status === "APROBADA")
@@ -2270,15 +2372,20 @@ export default function AdminDashboardPage() {
                               </div>
                             )}
                             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-black/40 to-transparent" />
-                            <div className="absolute top-3 left-3 flex items-center gap-2">
+                            <div className="absolute top-3 left-3 flex items-center gap-2 flex-wrap">
                               <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-black/70 backdrop-blur text-[#ffb5d7] border border-[#ffb5d7]/40 shadow-lg font-mono">
                                 {ev.badge || ev.dateLabel}
                               </span>
-                              {ev.hidden && (
+                              {(ev.archived || ev.status === "ARCHIVADO") ? (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-800 flex items-center gap-1 font-mono">
+                                  <Archive className="w-3 h-3" />
+                                  Archivado
+                                </span>
+                              ) : ev.hidden ? (
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-950/90 text-rose-300 border border-rose-800">
                                   Oculto
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           </div>
 
@@ -2364,17 +2471,37 @@ export default function AdminDashboardPage() {
 
                             <div className="flex items-center gap-3">
                               {permissions.canManageEvents && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleLoadEventToEdit(ev);
-                                    setSelectedEventId(ev.id);
-                                    setActiveTab("eventos");
-                                  }}
-                                  className="hover:text-white underline cursor-pointer"
-                                >
-                                  Editar
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleLoadEventToEdit(ev);
+                                      setSelectedEventId(ev.id);
+                                      setActiveTab("eventos");
+                                    }}
+                                    className="hover:text-white underline cursor-pointer"
+                                  >
+                                    Editar
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleArchive(ev)}
+                                    className="text-amber-300/80 hover:text-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                    title={
+                                      ev.archived || ev.status === "ARCHIVADO"
+                                        ? "Desarchivar evento para que vuelva a estar activo"
+                                        : "Archivar evento (no borra ningún dato)"
+                                    }
+                                  >
+                                    <Archive className="w-3.5 h-3.5" />
+                                    <span>
+                                      {ev.archived || ev.status === "ARCHIVADO"
+                                        ? "Desarchivar"
+                                        : "Archivar"}
+                                    </span>
+                                  </button>
+                                </>
                               )}
 
                               {(permissions.canDeleteEvents || isSuper) && (
@@ -3383,16 +3510,128 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
 
-                {/* Cobro online: cuenta destino y comisión */}
-                <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
-                  <span className="text-xs uppercase text-[#ffb5d7] block">
-                    Cobro online (Mercado Pago)
-                  </span>
-                  {!mpConfigured && (
-                    <p className="text-xs text-amber-300">
-                      Falta configurar MP_CLIENT_ID y MP_CLIENT_SECRET en el servidor.
-                    </p>
-                  )}
+                {/* CONFIGURACIÓN INTEGRAL DE MEDIOS DE PAGO DEL EVENTO (ALIAS, CBU Y MERCADO PAGO) */}
+                <div className="p-5 rounded-xl bg-[#151515] border-2 border-[#ffb5d7]/30 space-y-5">
+                  <div className="border-b border-white/10 pb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs uppercase tracking-wider text-[#ffb5d7] font-bold block flex items-center gap-1.5">
+                        <Wallet className="w-4 h-4 text-[#ffb5d7]" />
+                        Configuración de Medios de Pago del Evento
+                      </span>
+                      <p className="text-xs text-[#8a8a8a] mt-0.5">
+                        Definí acá los datos bancarios para transferencias directas (Alias y CBU) y la cuenta de cobro online con Mercado Pago.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 1. COBRO POR TRANSFERENCIA BANCARIA (ALIAS Y CBU) */}
+                  <div className="p-4 rounded-lg bg-[#1a1a1a] border border-[#2e2e2e] space-y-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
+                      <div>
+                        <span className="text-xs uppercase text-emerald-400 font-bold block">
+                          1. Cobro por Transferencia Bancaria Directa (Alias / CBU / CVU)
+                        </span>
+                        <p className="text-[11px] text-[#8a8a8a]">
+                          Datos visibles en el botón &quot;Copiar Alias / CBU&quot; y en el proceso de reserva de entradas.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          saveBankSettings(bankSettings);
+                          alert("✓ Datos bancarios (Alias y CBU) guardados con éxito.");
+                        }}
+                        className="px-3 py-1.5 rounded bg-[#2a2a2a] hover:bg-[#353535] text-emerald-300 text-xs font-semibold border border-emerald-500/30 transition-colors cursor-pointer"
+                      >
+                        ✓ Guardar Alias y CBU
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-[#8a8a8a] mb-1">
+                          Alias Oficial (se muestra en el botón &quot;Copiar Alias&quot;)
+                        </label>
+                        <input
+                          type="text"
+                          value={bankSettings.alias}
+                          onChange={(e) =>
+                            setBankSettings({
+                              ...bankSettings,
+                              alias: e.target.value,
+                            })
+                          }
+                          placeholder="Ej: MAS30.EVENTOS"
+                          className="w-full px-3 py-2 rounded bg-[#121212] border border-[#353535] text-xs font-mono text-white focus:border-[#ffb5d7] outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[#8a8a8a] mb-1">
+                          CBU / CVU (se muestra en el botón &quot;Copiar CBU&quot;)
+                        </label>
+                        <input
+                          type="text"
+                          value={bankSettings.cbu}
+                          onChange={(e) =>
+                            setBankSettings({
+                              ...bankSettings,
+                              cbu: e.target.value,
+                            })
+                          }
+                          placeholder="Ej: 00000031000..."
+                          className="w-full px-3 py-2 rounded bg-[#121212] border border-[#353535] text-xs font-mono text-white focus:border-[#ffb5d7] outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-[#8a8a8a] mb-1">
+                          Banco o Billetera Virtual
+                        </label>
+                        <input
+                          type="text"
+                          value={bankSettings.bankName}
+                          onChange={(e) =>
+                            setBankSettings({
+                              ...bankSettings,
+                              bankName: e.target.value,
+                            })
+                          }
+                          placeholder="Ej: Banco Galicia / Mercado Pago"
+                          className="w-full px-3 py-2 rounded bg-[#121212] border border-[#353535] text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[#8a8a8a] mb-1">
+                          Titular de la Cuenta
+                        </label>
+                        <input
+                          type="text"
+                          value={bankSettings.accountHolder}
+                          onChange={(e) =>
+                            setBankSettings({
+                              ...bankSettings,
+                              accountHolder: e.target.value,
+                            })
+                          }
+                          placeholder="Ej: MAS30 Producciones"
+                          className="w-full px-3 py-2 rounded bg-[#121212] border border-[#353535] text-xs text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. COBRO ONLINE CON MERCADO PAGO */}
+                  <div className="p-4 rounded-lg bg-[#1a1a1a] border border-[#2e2e2e] space-y-3.5">
+                    <span className="text-xs uppercase text-sky-400 font-bold block">
+                      2. Cobro Online con Mercado Pago
+                    </span>
+                    {!mpConfigured && (
+                      <p className="text-xs text-amber-300">
+                        Falta configurar MP_CLIENT_ID y MP_CLIENT_SECRET en el servidor.
+                      </p>
+                    )}
                   <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded bg-[#1c1c1c] border border-[#353535]">
                     <div>
                       <p className="text-xs text-white font-medium">
@@ -3515,8 +3754,9 @@ export default function AdminDashboardPage() {
                     </ul>
                   )}
                 </div>
+              </div>
 
-                {/* WhatsApp del Organizador y Redes Sociales del Evento */}
+              {/* WhatsApp del Organizador y Redes Sociales del Evento */}
                 <div className="p-4 rounded-md bg-[#121212] border border-[#353535] space-y-3.5">
                   <span className="text-xs uppercase text-[#ffb5d7] block">
                     WhatsApp del Organizador & Redes Sociales del Evento
@@ -3776,16 +4016,39 @@ export default function AdminDashboardPage() {
                           className="flex-1 min-w-[200px] px-2.5 py-1.5 rounded bg-[#1c1c1c] text-xs text-white/80"
                         />
                         <div className="flex items-center gap-2 text-[11px] px-2.5 py-1 rounded bg-[#1c1c1c] border border-[#353535]">
-                          <span className="text-[#ffb5d7] font-medium">
-                            Vendidos: {tier.sold || 0}
-                          </span>
-                          <span className="text-white/30">|</span>
-                          <span className="text-emerald-400 font-medium">
-                            Disponibles: {Math.max(0, (tier.stock || 0) - (tier.sold || 0))}
-                          </span>
-                          <span className="text-[#8a8a8a]">
-                            (Cupo: {tier.stock || 0})
-                          </span>
+                          {(() => {
+                            const actualTierSold = editingEventId
+                              ? orders
+                                  .filter(
+                                    (o) =>
+                                      o.eventId === editingEventId &&
+                                      o.status === "APROBADA" &&
+                                      (o.tierId === tier.id || !o.tierId)
+                                  )
+                                  .reduce(
+                                    (s, o) => s + (Number(o.quantity) || 1),
+                                    0
+                                  )
+                              : 0;
+                            return (
+                              <>
+                                <span className="text-[#ffb5d7] font-medium">
+                                  Vendidos: {actualTierSold}
+                                </span>
+                                <span className="text-white/30">|</span>
+                                <span className="text-emerald-400 font-medium">
+                                  Disponibles:{" "}
+                                  {Math.max(
+                                    0,
+                                    (tier.stock || 0) - actualTierSold
+                                  )}
+                                </span>
+                                <span className="text-[#8a8a8a]">
+                                  (Cupo: {tier.stock || 0})
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -3804,6 +4067,31 @@ export default function AdminDashboardPage() {
                       ? "Guardar Cambios"
                       : "Publicar Evento"}
                   </button>
+
+                  {editingEventId && permissions.canManageEvents && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ev = events.find((e) => e.id === editingEventId);
+                        if (ev) handleToggleArchive(ev);
+                      }}
+                      className={`w-full sm:w-auto px-4 py-3.5 rounded-[3px] border text-sm font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                        events.find((e) => e.id === editingEventId)?.archived ||
+                        events.find((e) => e.id === editingEventId)?.status === "ARCHIVADO"
+                          ? "bg-amber-950/80 hover:bg-amber-900 border-amber-600/50 text-amber-300"
+                          : "bg-[#252525] hover:bg-[#303030] border-[#353535] text-white/90"
+                      }`}
+                      title="Archivar o desarchivar evento sin eliminar datos"
+                    >
+                      <Archive className="w-4 h-4 text-amber-400" />
+                      <span>
+                        {events.find((e) => e.id === editingEventId)?.archived ||
+                        events.find((e) => e.id === editingEventId)?.status === "ARCHIVADO"
+                          ? "Desarchivar Evento"
+                          : "Archivar Evento"}
+                      </span>
+                    </button>
+                  )}
 
                   {editingEventId && (permissions.canDeleteEvents || isSuper) && (
                     <button
@@ -3895,21 +4183,25 @@ export default function AdminDashboardPage() {
                       {/* Resumen de Tickets Vendidos y Disponibles por Evento y por Tanda */}
                       <div className="mt-2 p-2.5 rounded bg-[#121212] border border-[#353535] space-y-1.5 text-xs">
                         {(() => {
-                          const totalStock = ev.ticketTiers.reduce(
-                            (acc, t) => acc + (Number(t.stock) || 0),
+                          const eventApprovedOrders = orders.filter(
+                            (o) => o.eventId === ev.id && o.status === "APROBADA"
+                          );
+                          const eventQRsIssued = tickets.filter(
+                            (tk) => tk.eventId === ev.id && tk.status !== "ANULADO"
+                          ).length;
+                          const ordersSoldQty = eventApprovedOrders.reduce(
+                            (acc, o) => acc + (Number(o.quantity) || 1),
                             0
                           );
-                          const totalSold = ev.ticketTiers.reduce(
-                            (acc, t) => acc + (Number(t.sold) || 0),
+                          const totalSold = Math.max(ordersSoldQty, eventQRsIssued);
+                          const totalStock = ev.ticketTiers.reduce(
+                            (acc, t) => acc + (Number(t.stock) || 0),
                             0
                           );
                           const totalAvailable = Math.max(
                             0,
                             totalStock - totalSold
                           );
-                          const eventQRsIssued = tickets.filter(
-                            (tk) => tk.eventId === ev.id && tk.status !== "ANULADO"
-                          ).length;
                           return (
                             <>
                               <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-white/10">
@@ -3941,9 +4233,20 @@ export default function AdminDashboardPage() {
                               </div>
                               <div className="space-y-1">
                                 {ev.ticketTiers.map((t) => {
+                                  const tierOrders = eventApprovedOrders.filter(
+                                    (o) => o.tierId === t.id || (!o.tierId && ev.ticketTiers[0]?.id === t.id)
+                                  );
+                                  const tierOrdersSold = tierOrders.reduce(
+                                    (acc, o) => acc + (Number(o.quantity) || 1),
+                                    0
+                                  );
+                                  const tierQRs = tickets.filter(
+                                    (tk) => tk.eventId === ev.id && tk.tierName === t.name && tk.status !== "ANULADO"
+                                  ).length;
+                                  const tierActualSold = Math.max(tierOrdersSold, tierQRs);
                                   const avail = Math.max(
                                     0,
-                                    (Number(t.stock) || 0) - (Number(t.sold) || 0)
+                                    (Number(t.stock) || 0) - tierActualSold
                                   );
                                   return (
                                     <div
@@ -3955,7 +4258,7 @@ export default function AdminDashboardPage() {
                                       </span>
                                       <span className="shrink-0">
                                         <strong className="text-[#ffb5d7]">
-                                          {t.sold || 0} vend.
+                                          {tierActualSold} vend.
                                         </strong>{" "}
                                         ·{" "}
                                         <strong className="text-emerald-400">
@@ -4230,10 +4533,17 @@ export default function AdminDashboardPage() {
                             (acc, t) => acc + (Number(t.stock) || 0),
                             0
                           );
-                          const totalSold = ev.ticketTiers.reduce(
-                            (acc, t) => acc + (Number(t.sold) || 0),
+                          const eventApprovedOrders = orders.filter(
+                            (o) => o.eventId === ev.id && o.status === "APROBADA"
+                          );
+                          const eventQRsIssued = tickets.filter(
+                            (tk) => tk.eventId === ev.id && tk.status !== "ANULADO"
+                          ).length;
+                          const ordersSoldQty = eventApprovedOrders.reduce(
+                            (acc, o) => acc + (Number(o.quantity) || 1),
                             0
                           );
+                          const totalSold = Math.max(ordersSoldQty, eventQRsIssued);
                           const totalAvailable = Math.max(
                             0,
                             totalStock - totalSold

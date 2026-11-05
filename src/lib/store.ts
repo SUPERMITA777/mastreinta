@@ -680,7 +680,7 @@ export function isEventVisiblePublicly(
   event: EventItem,
   now: Date = new Date()
 ): boolean {
-  if (event.hidden) return false;
+  if (event.hidden || event.archived || event.status === "ARCHIVADO") return false;
   if (event.publishAt && event.publishAt.trim()) {
     const launchTime = new Date(event.publishAt).getTime();
     if (!Number.isNaN(launchTime) && launchTime > now.getTime()) {
@@ -714,6 +714,25 @@ export async function toggleEventHidden(eventId: string): Promise<EventMutationR
   const updatedEvent: EventItem = {
     ...target,
     hidden: !target.hidden,
+  };
+  return upsertEvent(updatedEvent);
+}
+
+export async function toggleEventArchived(eventId: string): Promise<EventMutationResult> {
+  const current = getEvents();
+  const target = current.find((e) => e.id === eventId);
+  if (!target) {
+    return Object.assign([...current], {
+      ok: false,
+      error: "Evento no encontrado",
+      events: current,
+    });
+  }
+  const isArchived = Boolean(target.archived || target.status === "ARCHIVADO");
+  const updatedEvent: EventItem = {
+    ...target,
+    archived: !isArchived,
+    status: !isArchived ? "ARCHIVADO" : "ACTIVO",
   };
   return upsertEvent(updatedEvent);
 }

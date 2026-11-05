@@ -92,7 +92,8 @@ export interface EventItem {
   highlights: string[];
   lineup: string[];
   ticketTiers: TicketTier[];
-  status: "ACTIVO" | "ULTIMAS_ENTRADAS" | "AGOTADO" | "PROXIMAMENTE";
+  status: "ACTIVO" | "ULTIMAS_ENTRADAS" | "AGOTADO" | "PROXIMAMENTE" | "ARCHIVADO";
+  archived?: boolean;
   hidden?: boolean;
   publishAt?: string; // Fecha y hora ISO para publicación automática (ej: "2026-10-25T20:00")
   organizerWhatsapp?: string; // WhatsApp directo del organizador para consultas y compra de entradas
