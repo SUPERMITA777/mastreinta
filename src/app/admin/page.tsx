@@ -3573,7 +3573,7 @@ export default function AdminDashboardPage() {
                         onChange={(e) =>
                           setEvText("whatsappLabel", e.target.value)
                         }
-                        placeholder="WhatsApp Organizador (Consultas & Tickets)"
+                        placeholder="WhatsApp Organizador (Consultas & Entradas)"
                         className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
                       />
                     </div>

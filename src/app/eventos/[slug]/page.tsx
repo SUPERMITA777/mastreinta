@@ -199,7 +199,7 @@ export default function EventDetailPage() {
     `🎟 *Detalle de la compra:*`,
     selectedSpot
       ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
-      : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
+      : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Entradas / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
     ``,
     `👤 *Datos del cliente:*`,
     `• Nombre: ${buyerName.trim() || "-"}`,
@@ -226,7 +226,7 @@ export default function EventDetailPage() {
       `🎟 *Detalle de la compra:*`,
       selectedSpot
         ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
-        : `• Entrada: ${quantity}x ${selectedTier.name}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
+        : `• Entrada: ${quantity}x ${selectedTier.name}\n• Cantidad de Entradas / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
       ``,
       `👤 *Mis Datos:*`,
       `• Nombre: ${buyerName.trim() || "-"}`,
@@ -604,7 +604,7 @@ export default function EventDetailPage() {
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
                 <div>
                   <h2 className="text-2xl font-normal text-white">
-                    Tickets & Accesos QR
+                    Entradas & Accesos QR
                   </h2>
                   {getEventText(event, "checkoutNote") && (
                     <p className="text-xs text-[#8a8a8a] mt-1">
@@ -743,7 +743,7 @@ export default function EventDetailPage() {
               >
                 <div className="flex items-center justify-between border-t border-white/10 pt-4">
                   <span className="text-xs uppercase text-[#8a8a8a]">
-                    3. Tus Datos para los Tickets
+                    3. Tus Datos para las Entradas
                   </span>
                   <span className="text-lg font-medium text-[#ffb5d7]">
                     Total: {formatARS(paymentMethod === "mercadopago" && mpAvailable ? mpTotal : totalAmount)}

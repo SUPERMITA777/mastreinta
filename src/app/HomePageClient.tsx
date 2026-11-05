@@ -272,7 +272,7 @@ export default function HomePageClient({
                         }}
                         className="cursor-pointer hover:brightness-90 transition-all bg-soft-pink text-[#1c1c1c] h-[46px] min-w-[126px] w-fit px-4 rounded-[3px] font-medium mt-2 inline-block"
                       >
-                        Tickets
+                        Entradas
                       </button>
                     </div>
                   </div>
@@ -451,7 +451,7 @@ export default function HomePageClient({
                       }}
                       className="bg-soft-pink hover:brightness-90 transition-all text-[#1c1c1c] py-2 px-4 rounded-[3px] w-fit font-medium cursor-pointer"
                     >
-                      Tickets
+                      Entradas
                     </button>
 
                     {/* Botones de Acción Rápida: WhatsApp Organizador, Redes Sociales y Compartir */}
@@ -463,12 +463,12 @@ export default function HomePageClient({
                         href={`https://wa.me/${(
                           event.organizerWhatsapp || bank.whatsappSupport
                         ).replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                          `¡Hola MAS30! Quiero consultar o comprar tickets para el evento *${event.title}* (${event.dateLabel}).`
+                          `¡Hola MAS30! Quiero consultar o comprar entradas para el evento *${event.title}* (${event.dateLabel}).`
                         )}`}
                         target="_blank"
                         rel="noreferrer"
                         onClick={() => trackVisit("whatsapp_click", event.id)}
-                        title="WhatsApp del Organizador (Consultas y compra de tickets)"
+                        title="WhatsApp del Organizador (Consultas y compra de entradas)"
                         className="p-2 rounded-[3px] bg-[#2a2a2a] hover:bg-[#353535] text-[#ffb5d7] transition-colors flex items-center gap-1 text-xs"
                       >
                         <MessageCircle className="w-4 h-4" />

@@ -15,7 +15,7 @@ export const EVENT_TEXT_DEFAULTS = {
     "Pago por transferencia · El administrador autoriza y emite 1 QR por entrada",
   whatsappMessage:
     "¡Hola MAS30! Quiero hacer una consulta / comprar entradas para el evento *{evento}* ({fecha}).",
-  whatsappLabel: "WhatsApp Organizador (Consultas & Tickets)",
+  whatsappLabel: "WhatsApp Organizador (Consultas & Entradas)",
   instagramLabel: "Instagram Oficial",
   tiktokLabel: "Red Social / Video",
 } as const;

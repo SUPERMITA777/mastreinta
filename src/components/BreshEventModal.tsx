@@ -163,7 +163,7 @@ export default function BreshEventModal({
       `🎟 *Detalle de la compra:*`,
       selectedSpot
         ? `• Reserva de Mesa / Sector: *${selectedSpot.name}* (${selectedSpot.sectorName || "Pista"})\n• Accesos Incluidos: *${selectedSpot.capacity} QRs individuales*\n${selectedSpot.perks ? `• Beneficios: ${selectedSpot.perks}\n` : ""}• Total: *${formatARS(selectedSpot.price)}*`
-        : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Tickets / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
+        : `• Entrada: ${quantity}x ${selectedTier?.name || "Entrada General"}\n• Cantidad de Entradas / QRs: *${totalQRs} QR${totalQRs > 1 ? "s" : ""}*\n• Total: *${formatARS(totalAmount)}*`,
       ``,
       `👤 *Datos del cliente:*`,
       `• Nombre: ${buyerName.trim() || "-"}`,
@@ -447,7 +447,7 @@ export default function BreshEventModal({
                       >
                         {showCheckout
                           ? "Ver Información y Mapa"
-                          : "Comprar Tickets (Transferencia / QR)"}
+                          : "Comprar Entradas (Transferencia / QR)"}
                       </button>
                     </div>
                   </div>
@@ -478,7 +478,7 @@ export default function BreshEventModal({
                 >
                   {showCheckout
                     ? "← Volver a Información del Evento"
-                    : "Comprar Tickets"}
+                    : "Comprar Entradas"}
                 </button>
                 <Link
                   href={`/eventos/${event.slug}`}
