@@ -986,14 +986,18 @@ export default function EventDetailPage() {
                       ) : (
                         <>
                           <CreditCard className="w-5 h-5" />
-                          <span>Pagar {formatARS(mpTotal)} · Continuar</span>
+                          <span>Pagar {formatARS(mpTotal)} con Mercado Pago</span>
                         </>
                       )}
                     </button>
 
-                    {mpFee > 0 && (
+                    {mpFee > 0 ? (
                       <p className="text-[11px] text-white/60 text-center">
-                        Incluye {formatARS(mpFee)} de cargo por servicio de Mercado Pago ({formatARS(totalAmount)} + {formatARS(mpFee)}). Por transferencia directa pagás {formatARS(totalAmount)}.
+                        Incluye el valor de las entradas más el service charge.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-white/60 text-center">
+                        Incluye el valor de las entradas.
                       </p>
                     )}
                     <div className="p-3 rounded-lg bg-[#141414] border border-white/5 space-y-1.5 text-center">

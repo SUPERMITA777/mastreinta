@@ -702,14 +702,18 @@ export default function BreshEventModal({
                         >
                           {paying
                             ? "Redirigiendo a Mercado Pago..."
-                            : `Pagar ${formatARS(mpTotal)} con tarjeta o transferencia`}
+                            : `Pagar ${formatARS(mpTotal)} con Mercado Pago`}
                         </button>
                         {payError && (
                           <p className="text-xs text-red-300">{payError}</p>
                         )}
-                        {mpFee > 0 && (
+                        {mpFee > 0 ? (
                           <p className="text-[11px] text-white/60 text-center">
-                            Incluye {formatARS(mpFee)} de cargo por servicio de Mercado Pago.
+                            Incluye el valor de las entradas más el service charge.
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-white/60 text-center">
+                            Incluye el valor de las entradas.
                           </p>
                         )}
                         <p className="text-[11px] text-white/50 text-center">
