@@ -133,6 +133,7 @@ import {
 import VenueMapEditor from "@/components/VenueMapEditor";
 import DoorQRScannerPage from "./scanner/page";
 import AdminClientsSection from "@/components/AdminClientsSection";
+import DoorAccessQRModal from "@/components/DoorAccessQRModal";
 
 /** Escapa texto que se interpola en HTML generado a mano (evita XSS almacenado). */
 function escapeHtml(value: unknown): string {
@@ -335,6 +336,8 @@ export default function AdminDashboardPage() {
   const [isUploadingFlyer, setIsUploadingFlyer] = useState(false);
   const [uploadingEventFlyerId, setUploadingEventFlyerId] = useState<string | null>(null);
   const [togglingEventId, setTogglingEventId] = useState<string | null>(null);
+  const [showDoorQrModal, setShowDoorQrModal] = useState(false);
+  const [doorQrEventId, setDoorQrEventId] = useState("");
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [editingInquiryId, setEditingInquiryId] = useState<string | null>(null);
@@ -491,6 +494,26 @@ export default function AdminDashboardPage() {
   );
   const visibleEventIds = new Set(visibleEvents.map((e) => e.id));
   const selectedEvent = visibleEvents.find((e) => e.id === selectedEventId) || null;
+  const activeEventsForDoor = visibleEvents.filter(
+    (ev) => !ev.archived && ev.status !== "ARCHIVADO"
+  );
+  const canOpenDoorQr =
+    isSuper ||
+    permissions.canUseScanner ||
+    permissions.canManageEvents ||
+    permissions.canViewTickets;
+
+  const openDoorQrForEvent = (eventId?: string) => {
+    const candidate =
+      eventId && activeEventsForDoor.some((e) => e.id === eventId)
+        ? eventId
+        : selectedEventId &&
+            activeEventsForDoor.some((e) => e.id === selectedEventId)
+          ? selectedEventId
+          : activeEventsForDoor[0]?.id || "";
+    setDoorQrEventId(candidate);
+    setShowDoorQrModal(true);
+  };
 
   // Filtrar órdenes, tickets y consultas según los eventos accesibles
   const visibleOrders = orders.filter((o) => visibleEventIds.has(o.eventId));
@@ -1902,13 +1925,16 @@ export default function AdminDashboardPage() {
               Emitir Accesos / QR Manual
             </button>
 
-            <Link
-              href="/admin/scanner"
-              className="px-4 py-2.5 rounded-[3px] bg-bresh text-white font-medium text-sm flex items-center gap-2 hover:brightness-90"
-            >
-              <QrCode className="w-4 h-4" />
-              Lector QR Puerta
-            </Link>
+            {canOpenDoorQr && (
+              <button
+                type="button"
+                onClick={() => openDoorQrForEvent()}
+                className="px-4 py-2.5 rounded-[3px] bg-bresh text-white font-medium text-sm flex items-center gap-2 hover:brightness-90 cursor-pointer"
+              >
+                <QrCode className="w-4 h-4" />
+                QR Acceso Puerta
+              </button>
+            )}
           </div>
         </div>
 
@@ -2574,6 +2600,19 @@ export default function AdminDashboardPage() {
                             </Link>
 
                             <div className="flex items-center gap-3">
+                              {canOpenDoorQr &&
+                                !ev.archived &&
+                                ev.status !== "ARCHIVADO" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openDoorQrForEvent(ev.id)}
+                                    className="text-[#ffb5d7] hover:text-white flex items-center gap-1 cursor-pointer font-medium"
+                                    title="Generar o compartir QR de acceso para control de puerta de este evento"
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                    <span>QR Puerta</span>
+                                  </button>
+                                )}
                               {permissions.canManageEvents && (
                                 <>
                                   <button
@@ -5309,6 +5348,22 @@ export default function AdminDashboardPage() {
                   <Download className="w-4 h-4" />
                   CSV
                 </button>
+
+                {canOpenDoorQr && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openDoorQrForEvent(
+                        ticketEventFilter !== "ALL" ? ticketEventFilter : undefined
+                      )
+                    }
+                    className="px-3.5 py-2 rounded-[3px] bg-bresh hover:brightness-110 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all"
+                    title="Generar o compartir QR de acceso a puerta para un evento"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    QR Acceso Puerta
+                  </button>
+                )}
               </div>
             </div>
 
@@ -7612,6 +7667,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      <DoorAccessQRModal
+        isOpen={showDoorQrModal}
+        onClose={() => setShowDoorQrModal(false)}
+        events={activeEventsForDoor}
+        initialEventId={doorQrEventId}
+      />
     </div>
   );
 }

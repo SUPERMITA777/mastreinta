@@ -355,6 +355,10 @@ export default function DoorQRScannerPage() {
               Ingresar al Lector QR
             </button>
           </form>
+          <p className="text-[11px] text-white/60 text-center leading-relaxed border-t border-white/10 pt-3">
+            ¿Trabajás en puerta sin usuario? Escaneá con la cámara de tu celular el{" "}
+            <strong className="text-[#ffb5d7]">QR de Acceso Puerta</strong> del evento que te comparte el organizador para habilitar el lector directamente.
+          </p>
         </div>
       </div>
     );
