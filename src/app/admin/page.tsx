@@ -94,6 +94,7 @@ import {
   saveBankSettings,
   toggleEventArchived,
   toggleEventHidden,
+  updateEventFlyer,
   updateEventVenueMap,
   updateTicketStatus,
   upsertAdminRole,
@@ -297,7 +298,13 @@ export default function AdminDashboardPage() {
   const [evMpEnabled, setEvMpEnabled] = useState(true);
   const [evServiceFee, setEvServiceFee] = useState("0");
   const [mpAccounts, setMpAccounts] = useState<
-    { id: string; label: string; mpUserId: string; email?: string }[]
+    {
+      id: string;
+      label: string;
+      mpUserId: string;
+      email?: string;
+      supportsSplit?: boolean;
+    }[]
   >([]);
   const [mpConfigured, setMpConfigured] = useState(true);
   const [mpNewLabel, setMpNewLabel] = useState("");
@@ -325,6 +332,8 @@ export default function AdminDashboardPage() {
   const [eventSavedMsg, setEventSavedMsg] = useState<string>("");
   const [eventErrorMsg, setEventErrorMsg] = useState<string>("");
   const [isSavingEvent, setIsSavingEvent] = useState(false);
+  const [isUploadingFlyer, setIsUploadingFlyer] = useState(false);
+  const [uploadingEventFlyerId, setUploadingEventFlyerId] = useState<string | null>(null);
   const [togglingEventId, setTogglingEventId] = useState<string | null>(null);
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -958,13 +967,33 @@ export default function AdminDashboardPage() {
     setTimeout(() => setUserSavedMsg(""), 4000);
   };
 
-  const handleFlyerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFlyerFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    targetEventIdOverride?: string
+  ) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+    const effectiveEventId =
+      targetEventIdOverride ||
+      editingEventId ||
+      (selectedEventId && selectedEventId !== "__NEW__"
+        ? selectedEventId
+        : null);
+
+    setIsUploadingFlyer(true);
+    if (effectiveEventId) setUploadingEventFlyerId(effectiveEventId);
+    setEventErrorMsg("");
+    setEventSavedMsg("");
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       const rawDataUrl = ev.target?.result as string;
-      if (!rawDataUrl) return;
+      if (!rawDataUrl) {
+        setIsUploadingFlyer(false);
+        setUploadingEventFlyerId(null);
+        return;
+      }
       const img = new Image();
       img.onload = async () => {
         const maxDim = 1080;
@@ -983,19 +1012,23 @@ export default function AdminDashboardPage() {
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          setEvFlyerUrl(rawDataUrl);
-          return;
+        const compressedDataUrl = ctx
+          ? (ctx.drawImage(img, 0, 0, w, h),
+            canvas.toDataURL("image/jpeg", 0.84))
+          : rawDataUrl;
+
+        if (!targetEventIdOverride || targetEventIdOverride === editingEventId) {
+          setEvFlyerUrl(compressedDataUrl);
         }
-        ctx.drawImage(img, 0, 0, w, h);
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.84);
-        setEvFlyerUrl(compressedDataUrl);
+
+        let finalUrl = compressedDataUrl;
 
         // Sube automáticamente la imagen a Supabase Storage (mas30-cloud-db)
         try {
           const res = await fetch("/api/cloud-store", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({
               action: "upload_flyer",
               dataUrl: compressedDataUrl,
@@ -1004,12 +1037,47 @@ export default function AdminDashboardPage() {
           if (res.ok) {
             const data = await res.json();
             if (data.url) {
-              setEvFlyerUrl(data.url);
+              finalUrl = data.url;
+              if (
+                !targetEventIdOverride ||
+                targetEventIdOverride === editingEventId
+              ) {
+                setEvFlyerUrl(data.url);
+              }
             }
           }
         } catch {
           // Mantiene la versión comprimida si falla la red
         }
+
+        // Si estamos editando un evento ya creado, guardar inmediatamente la nueva foto en el evento
+        if (
+          effectiveEventId &&
+          events.some((item) => item.id === effectiveEventId)
+        ) {
+          const saveRes = await updateEventFlyer(effectiveEventId, finalUrl);
+          syncAll();
+          if (saveRes.ok) {
+            setEventSavedMsg(
+              "✓ Foto del evento actualizada y guardada con éxito."
+            );
+            setTimeout(() => setEventSavedMsg(""), 5000);
+          } else {
+            setEventErrorMsg(
+              `⚠ No se pudo guardar la foto en el servidor: ${
+                saveRes.error || "Error de red"
+              }`
+            );
+          }
+        }
+
+        setIsUploadingFlyer(false);
+        setUploadingEventFlyerId(null);
+      };
+      img.onerror = () => {
+        setIsUploadingFlyer(false);
+        setUploadingEventFlyerId(null);
+        setEventErrorMsg("⚠ El archivo seleccionado no es una imagen válida.");
       };
       img.src = rawDataUrl;
     };
@@ -1039,10 +1107,18 @@ export default function AdminDashboardPage() {
     const mapQuery =
       evMapQuery.trim() || `${evVenueName} ${evVenueAddress} ${evVenueCity}`.trim();
 
+    const targetId =
+      editingEventId ||
+      (selectedEventId &&
+      selectedEventId !== "__NEW__" &&
+      events.some((x) => x.id === selectedEventId)
+        ? selectedEventId
+        : null);
+
     const newEvent: EventItem = {
-      id: editingEventId || `evt-${Date.now()}`,
-      slug: editingEventId
-        ? events.find((x) => x.id === editingEventId)?.slug || slug
+      id: targetId || `evt-${Date.now()}`,
+      slug: targetId
+        ? events.find((x) => x.id === targetId)?.slug || slug
         : slug,
       title: evTitle.toUpperCase(),
       subtitle: evSubtitle,
@@ -1082,15 +1158,15 @@ export default function AdminDashboardPage() {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean),
-      ticketTiers: editingEventId ? evTiers : evTiers.map((t) => ({ ...t, sold: 0 })),
-      venueMap: editingEventId
-        ? events.find((x) => x.id === editingEventId)?.venueMap || createDefaultVenueMap()
+      ticketTiers: targetId ? evTiers : evTiers.map((t) => ({ ...t, sold: 0 })),
+      venueMap: targetId
+        ? events.find((x) => x.id === targetId)?.venueMap || createDefaultVenueMap()
         : createDefaultVenueMap(),
-      status: editingEventId
-        ? events.find((x) => x.id === editingEventId)?.status || "ACTIVO"
+      status: targetId
+        ? events.find((x) => x.id === targetId)?.status || "ACTIVO"
         : "ACTIVO",
-      archived: editingEventId
-        ? Boolean(events.find((x) => x.id === editingEventId)?.archived)
+      archived: targetId
+        ? Boolean(events.find((x) => x.id === targetId)?.archived)
         : false,
       hidden: evHidden,
       publishAt: evPublishAt.trim() || undefined,
@@ -1108,16 +1184,15 @@ export default function AdminDashboardPage() {
         50,
         Math.max(0, Number(evFeePercent.replace(",", ".")) || 0)
       ),
-      createdByUsername: editingEventId
-        ? events.find((x) => x.id === editingEventId)?.createdByUsername || currentUser?.username
+      createdByUsername: targetId
+        ? events.find((x) => x.id === targetId)?.createdByUsername || currentUser?.username
         : currentUser?.username,
-      createdAt: editingEventId
-        ? events.find((x) => x.id === editingEventId)?.createdAt || new Date().toISOString()
+      createdAt: targetId
+        ? events.find((x) => x.id === targetId)?.createdAt || new Date().toISOString()
         : new Date().toISOString(),
     };
 
-    saveBankSettings(bankSettings);
-    const res = await upsertEvent(newEvent, currentUser?.username);
+    const res = await upsertEvent(newEvent, currentUser?.username, bankSettings);
     setIsSavingEvent(false);
 
     if (!res.ok) {
@@ -1128,25 +1203,33 @@ export default function AdminDashboardPage() {
     }
 
     syncAll();
-    setEditingEventId(null);
-    setEvTitle("");
-    setEvSubtitle("");
-    setEvVenueName("");
-    setEvVenueAddress("");
-    setEvVenueCity("Buenos Aires");
-    setEvMapQuery("");
-    setEvDescription("");
-    setEvTexts({ ...EVENT_TEXT_DEFAULTS });
-    setEvHidden(false);
-    setEvMpEnabled(true);
-    setEvServiceFee("0");
-    setEvPublishAt("");
-    setEvPaymentAccountId("");
-    setEvFeePercent("0");
-    setEvMpEnabled(true);
-    setEvServiceFee("0");
+    const savedFromCloud = res.events?.find((x) => x.id === newEvent.id) || newEvent;
+    if (savedFromCloud.flyerUrl) {
+      setEvFlyerUrl(savedFromCloud.flyerUrl);
+    }
+
+    if (targetId) {
+      setEditingEventId(targetId);
+    } else {
+      setEditingEventId(null);
+      setEvTitle("");
+      setEvSubtitle("");
+      setEvVenueName("");
+      setEvVenueAddress("");
+      setEvVenueCity("Buenos Aires");
+      setEvMapQuery("");
+      setEvDescription("");
+      setEvTexts({ ...EVENT_TEXT_DEFAULTS });
+      setEvHidden(false);
+      setEvMpEnabled(true);
+      setEvServiceFee("0");
+      setEvPublishAt("");
+      setEvPaymentAccountId("");
+      setEvFeePercent("0");
+    }
+
     setEventSavedMsg(
-      editingEventId
+      targetId
         ? "✓ Cambios del evento guardados con éxito."
         : "✓ Evento publicado con éxito en la cartelera."
     );
@@ -2183,6 +2266,10 @@ export default function AdminDashboardPage() {
                           setTicketEventFilter(val);
                           setRendicionEventFilter(val);
                           setDailyVisitsEventFilter(val);
+                          const nextEv = visibleEvents.find((x) => x.id === val);
+                          if (nextEv) {
+                            handleLoadEventToEdit(nextEv);
+                          }
                         }
                       }}
                       className="bg-[#121212] border border-[#353535] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#ffb5d7]"
@@ -2387,6 +2474,23 @@ export default function AdminDashboardPage() {
                                 </span>
                               ) : null}
                             </div>
+                            {permissions.canManageEvents && (
+                              <label className="absolute top-3 right-3 px-2.5 py-1.5 rounded-md text-[11px] font-semibold bg-black/80 hover:bg-soft-pink text-white hover:text-[#1c1c1c] border border-white/20 backdrop-blur shadow-lg flex items-center gap-1.5 cursor-pointer transition-colors">
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>
+                                  {uploadingEventFlyerId === ev.id
+                                    ? "Subiendo..."
+                                    : "Cambiar Foto"}
+                                </span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={isUploadingFlyer}
+                                  onChange={(e) => handleFlyerFileUpload(e, ev.id)}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
                           </div>
 
                           {/* Info del Evento */}
@@ -3379,27 +3483,57 @@ export default function AdminDashboardPage() {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <label className="block text-xs text-[#8a8a8a]">
                     Imagen del Flyer (URL o subir desde tu PC) *
                   </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      value={evFlyerUrl}
-                      onChange={(e) => setEvFlyerUrl(e.target.value)}
-                      className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
-                    />
-                    <label className="px-4 py-2.5 rounded-[3px] bg-[#353535] text-white text-xs font-medium flex items-center justify-center gap-2 cursor-pointer shrink-0">
-                      <Upload className="w-4 h-4" />
-                      Subir Imagen
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFlyerFileUpload}
-                        className="hidden"
-                      />
-                    </label>
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    {evFlyerUrl && (
+                      <div className="w-20 h-20 rounded-md overflow-hidden border border-[#353535] bg-[#121212] shrink-0">
+                        <img
+                          src={evFlyerUrl}
+                          alt="Vista previa del flyer"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className="flex-1 w-full space-y-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={evFlyerUrl}
+                          onChange={(e) => setEvFlyerUrl(e.target.value)}
+                          placeholder="https://... o subí una imagen desde tu dispositivo"
+                          className="flex-1 px-3.5 py-2.5 rounded-md bg-[#121212] border border-[#353535] text-xs text-white"
+                        />
+                        <label
+                          className={`px-4 py-2.5 rounded-[3px] text-xs font-medium flex items-center justify-center gap-2 cursor-pointer shrink-0 transition-colors ${
+                            isUploadingFlyer
+                              ? "bg-[#252525] text-[#8a8a8a] cursor-wait"
+                              : "bg-soft-pink hover:brightness-95 text-[#1c1c1c] font-semibold"
+                          }`}
+                        >
+                          <Upload className="w-4 h-4" />
+                          {isUploadingFlyer
+                            ? "Subiendo y guardando..."
+                            : editingEventId
+                            ? "Cambiar Foto del Evento"
+                            : "Subir Imagen"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={isUploadingFlyer}
+                            onChange={(e) => handleFlyerFileUpload(e)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-[#8a8a8a]">
+                        {editingEventId
+                          ? "Al seleccionar una nueva imagen desde tu dispositivo, se sube y actualiza automáticamente en este evento."
+                          : "Subí la imagen desde tu dispositivo o pegá el enlace directo del flyer."}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -3711,8 +3845,29 @@ export default function AdminDashboardPage() {
                         placeholder="0"
                         className="w-full px-3 py-2 rounded bg-[#1c1c1c] border border-[#353535] text-xs text-white"
                       />
+                      <p className="text-[11px] text-[#8a8a8a] mt-1">
+                        Solo aplica a cuentas de terceros conectadas por OAuth (Marketplace). Para cuentas propias debe quedar en 0.
+                      </p>
                     </div>
                   </div>
+                  {(() => {
+                    const selectedAcc = mpAccounts.find(
+                      (a) => a.id === evPaymentAccountId
+                    );
+                    const feeNum = Number(evFeePercent.replace(",", ".")) || 0;
+                    if (
+                      selectedAcc &&
+                      selectedAcc.supportsSplit === false &&
+                      feeNum > 0
+                    ) {
+                      return (
+                        <div className="p-2.5 rounded bg-amber-950/60 border border-amber-500/40 text-xs text-amber-200">
+                          ⚠ La cuenta seleccionada ({selectedAcc.label}) no usa split OAuth de Marketplace: la comisión de la plataforma se ignorará al cobrar y debe dejarse en 0%. Para sumarle un recargo al comprador, usá &quot;Cobro del servicio (%)&quot;.
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="flex-1 min-w-[180px]">
                       <label className="block text-xs text-[#8a8a8a] mb-1">
@@ -4283,6 +4438,22 @@ export default function AdminDashboardPage() {
                         >
                           Editar
                         </button>
+
+                        <label className="px-2.5 py-1 rounded-sm bg-[#AF2C75]/30 hover:bg-[#AF2C75]/50 border border-[#ffb5d7]/30 text-xs text-[#ffb5d7] flex items-center gap-1 cursor-pointer transition-colors">
+                          <Upload className="w-3 h-3" />
+                          <span>
+                            {uploadingEventFlyerId === ev.id
+                              ? "Subiendo..."
+                              : "Cambiar Foto"}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={isUploadingFlyer}
+                            onChange={(e) => handleFlyerFileUpload(e, ev.id)}
+                            className="hidden"
+                          />
+                        </label>
 
                         <button
                           type="button"

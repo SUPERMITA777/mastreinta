@@ -59,6 +59,8 @@ export async function GET(req: Request) {
         totalQrCount: order.totalQrCount,
         totalAmount: order.totalAmount,
         status: order.status,
+        issueType: order.issueType,
+        paymentStatus: order.paymentStatus,
         spotName: order.spotName,
         sectorName: order.sectorName,
         createdAt: order.createdAt,

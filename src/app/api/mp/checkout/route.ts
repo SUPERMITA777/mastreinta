@@ -7,6 +7,7 @@ import {
   createPreference,
   getAccountWithFreshToken,
   getSiteUrl,
+  isMarketplaceSellerAccount,
   mutateState,
   newOrderId,
   releaseExpiredMpOrders,
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     }
     const body = (await req.json()) as CheckoutBody;
     const buyerName = String(body.buyerName || "").trim();
-    const buyerEmail = String(body.buyerEmail || "").trim();
+    const buyerEmail = String(body.buyerEmail || "").trim().toLowerCase();
     const buyerPhone = String(body.buyerPhone || "").trim();
     if (!buyerName || !/^\S+@\S+\.\S+$/.test(buyerEmail) || !buyerPhone) {
       throw new CheckoutError("Completá nombre, email y WhatsApp válidos.");
@@ -229,15 +230,20 @@ export async function POST(req: Request) {
         });
       }
 
+      const effectivePlatformFee = isMarketplaceSellerAccount(account)
+        ? created.order.platformFee || 0
+        : 0;
+
       const pref = await createPreference({
         accessToken: account.accessToken,
         title: `${created.eventTitle} · ${created.order.tierName} x${created.order.quantity}`,
         amount: created.order.totalAmount,
-        fee: created.order.platformFee || 0,
+        fee: effectivePlatformFee,
         externalReference: created.order.id,
         accountId: account.id,
         buyerEmail,
         buyerName,
+        buyerPhone,
         siteUrl,
         expiresAt,
         items: mpItems,

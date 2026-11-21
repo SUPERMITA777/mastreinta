@@ -79,6 +79,15 @@ async function writeAccounts(accounts: PaymentAccountSecret[]) {
   if (error) throw new Error(error.message);
 }
 
+export function isMarketplaceSellerAccount(
+  account: PaymentAccountSecret
+): boolean {
+  if (!account.refreshToken || !account.refreshToken.trim()) return false;
+  const ownerUserId = (process.env.MP_OWNER_USER_ID || "").trim();
+  if (ownerUserId && String(account.mpUserId) === ownerUserId) return false;
+  return true;
+}
+
 export function toPublicAccount(a: PaymentAccountSecret): PaymentAccountPublic {
   return {
     id: a.id,
@@ -86,6 +95,7 @@ export function toPublicAccount(a: PaymentAccountSecret): PaymentAccountPublic {
     mpUserId: a.mpUserId,
     email: a.email,
     connectedAt: a.connectedAt,
+    supportsSplit: isMarketplaceSellerAccount(a),
   };
 }
 
@@ -266,62 +276,27 @@ export interface MpPreferenceInput {
   accountId: string;
   buyerEmail: string;
   buyerName: string;
+  buyerPhone?: string;
   siteUrl: string;
   expiresAt: string;
   items?: MpPreferenceItem[];
 }
 
-export async function createPreference(input: MpPreferenceInput) {
-  const isLocal =
-    input.siteUrl.includes("localhost") || input.siteUrl.includes("127.0.0.1");
-  const publicBase = isLocal ? "https://mastreinta.vercel.app" : input.siteUrl;
+type MpPreferenceResponse = {
+  id: string;
+  init_point: string;
+  sandbox_init_point?: string;
+  marketplace?: string;
+};
 
-  const back = `${publicBase}/pago/resultado?ref=${encodeURIComponent(
-    input.externalReference
-  )}&t=${encodeURIComponent(orderAccessToken(input.externalReference))}`;
-
-  const preferenceItems =
-    input.items && input.items.length > 0
-      ? input.items.map((it) => ({
-          id: it.id,
-          title: it.title.slice(0, 250),
-          quantity: it.quantity,
-          unit_price: it.unit_price,
-          currency_id: it.currency_id || "ARS",
-          ...(it.description ? { description: it.description } : {}),
-        }))
-      : [
-          {
-            id: input.externalReference,
-            title: input.title.slice(0, 250),
-            quantity: 1,
-            unit_price: input.amount,
-            currency_id: "ARS",
-          },
-        ];
-
-  const body: Record<string, unknown> = {
-    items: preferenceItems,
-    payer: { email: input.buyerEmail, name: input.buyerName },
-    external_reference: input.externalReference,
-    notification_url: `${publicBase}/api/mp/webhook?acc=${encodeURIComponent(
-      input.accountId
-    )}`,
-    back_urls: { success: back, pending: back, failure: back },
-    binary_mode: true, // aprobado o rechazado, sin estados intermedios
-    statement_descriptor: "MAS30",
-    expires: true,
-    expiration_date_to: input.expiresAt,
-  };
-  if (!isLocal) {
-    body.auto_return = "approved";
-  }
-  if (input.fee > 0) body.marketplace_fee = input.fee;
-
+async function postMpPreference(
+  accessToken: string,
+  body: Record<string, unknown>
+): Promise<MpPreferenceResponse> {
   const res = await fetch(`${MP_API}/checkout/preferences`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${input.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -330,7 +305,95 @@ export async function createPreference(input: MpPreferenceInput) {
   if (!res.ok) {
     throw new Error(json?.message || `Mercado Pago rechazó la preferencia (${res.status})`);
   }
-  return json as { id: string; init_point: string; sandbox_init_point?: string };
+  return json as MpPreferenceResponse;
+}
+
+export async function createPreference(input: MpPreferenceInput) {
+  const isLocal =
+    input.siteUrl.includes("localhost") || input.siteUrl.includes("127.0.0.1");
+  const publicBase = isLocal ? "https://mastreinta.vercel.app" : input.siteUrl;
+
+  const backBase = `${publicBase}/pago/resultado?ref=${encodeURIComponent(
+    input.externalReference
+  )}&t=${encodeURIComponent(orderAccessToken(input.externalReference))}`;
+
+  const rawItems: MpPreferenceItem[] =
+    input.items && input.items.length > 0
+      ? input.items
+      : [
+          {
+            id: input.externalReference,
+            title: input.title,
+            quantity: 1,
+            unit_price: input.amount,
+            currency_id: "ARS",
+          },
+        ];
+
+  const preferenceItems = rawItems.map((it) => {
+    const cleanTitle = it.title.trim().replace(/\s+/g, " ").slice(0, 250);
+    const cleanDescription = (it.description || it.title)
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 250);
+    return {
+      id: it.id,
+      title: cleanTitle,
+      description: cleanDescription,
+      category_id: "tickets",
+      quantity: it.quantity,
+      unit_price: it.unit_price,
+      currency_id: it.currency_id || "ARS",
+    };
+  });
+
+  const nameParts = input.buyerName.trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] || input.buyerName.trim();
+  const surname = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+  const phoneDigits = (input.buyerPhone || "").replace(/\D/g, "");
+
+  const payer: Record<string, unknown> = {
+    email: input.buyerEmail.trim().toLowerCase(),
+    name: firstName,
+    ...(surname ? { surname } : {}),
+    ...(phoneDigits ? { phone: { number: phoneDigits } } : {}),
+  };
+
+  const body: Record<string, unknown> = {
+    items: preferenceItems,
+    payer,
+    external_reference: input.externalReference,
+    notification_url: `${publicBase}/api/mp/webhook?acc=${encodeURIComponent(
+      input.accountId
+    )}`,
+    back_urls: {
+      success: `${backBase}&res=success`,
+      pending: `${backBase}&res=pending`,
+      failure: `${backBase}&res=failure`,
+    },
+    binary_mode: true, // aprobado o rechazado, sin estados intermedios
+    statement_descriptor: "MAS30",
+    expires: true,
+    expiration_date_to: input.expiresAt,
+  };
+  if (!isLocal) {
+    body.auto_return = "approved";
+  }
+  if (input.fee > 0 && input.fee < input.amount) {
+    body.marketplace_fee = input.fee;
+  }
+
+  let pref = await postMpPreference(input.accessToken, body);
+  // Red de seguridad: si MP creó la preferencia con marketplace="NONE", no permite marketplace_fee > 0.
+  if ("marketplace_fee" in body && (!pref.marketplace || pref.marketplace === "NONE")) {
+    console.warn(
+      "[MP] Preferencia con marketplace_fee > 0 pero marketplace=NONE; regenerando sin marketplace_fee.",
+      { accountId: input.accountId, externalReference: input.externalReference }
+    );
+    delete body.marketplace_fee;
+    pref = await postMpPreference(input.accessToken, body);
+  }
+  return pref;
 }
 
 export interface MpPayment {
@@ -355,10 +418,31 @@ export async function fetchPayment(
   return res.json();
 }
 
+export async function findPaymentByExternalReference(
+  accessToken: string,
+  externalReference: string
+): Promise<MpPayment | null> {
+  const res = await fetch(
+    `${MP_API}/v1/payments/search?external_reference=${encodeURIComponent(
+      externalReference
+    )}&sort=date_created&criteria=desc&limit=10`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) return null;
+  const json = (await res.json()) as { results?: MpPayment[] };
+  const results = Array.isArray(json.results) ? json.results : [];
+  if (results.length === 0) return null;
+  return results.find((p) => p.status === "approved") || results[0];
+}
+
 /** Valida la firma x-signature de las notificaciones (si MP_WEBHOOK_SECRET está definido). */
 export function verifyWebhookSignature(req: Request, dataId: string): boolean {
   if (!MP_WEBHOOK_SECRET) return true; // la verificación real la hace fetchPayment()
-  const sigHeader = req.headers.get("x-signature") || "";
+  const sigHeader = (req.headers.get("x-signature") || "").trim();
+  if (!sigHeader) return true; // IPN clásico de Checkout Pro no envía x-signature; fetchPayment() valida con MP
   const requestId = req.headers.get("x-request-id") || "";
   const parts = Object.fromEntries(
     sigHeader.split(",").map((p) => p.trim().split("=") as [string, string])
@@ -443,7 +527,7 @@ export function verifyOrderAccessToken(orderId: string, token: string): boolean 
   return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 }
 
-/** Libera mesas y descarta órdenes MP pendientes que vencieron sin pagarse. */
+/** Libera mesas y marca como vencidas las órdenes MP pendientes cuyo plazo expiró (sin borrarlas de inmediato para poder conciliar pagos tardíos). */
 export function releaseExpiredMpOrders(state: Record<string, unknown>): void {
   const orders = (state.orders as OrderItem[]) || [];
   const now = Date.now();
@@ -454,27 +538,54 @@ export function releaseExpiredMpOrders(state: Record<string, unknown>): void {
       o.expiresAt &&
       new Date(o.expiresAt).getTime() < now
   );
-  if (expired.length === 0) return;
-
   const expiredCodes = new Set(expired.map((o) => o.orderCode));
-  const events = (state.events as EventItem[]) || [];
-  state.events = events.map((ev) => {
-    if (!ev.venueMap?.spots) return ev;
-    const spots = ev.venueMap.spots.map((s) =>
-      s.status === "RESERVADO" &&
-      s.reservedByOrderCode &&
-      expiredCodes.has(s.reservedByOrderCode)
+
+  if (expired.length > 0) {
+    const events = (state.events as EventItem[]) || [];
+    state.events = events.map((ev) => {
+      if (!ev.venueMap?.spots) return ev;
+      const spots = ev.venueMap.spots.map((s) =>
+        s.status === "RESERVADO" &&
+        s.reservedByOrderCode &&
+        expiredCodes.has(s.reservedByOrderCode)
+          ? {
+              ...s,
+              status: "DISPONIBLE" as const,
+              reservedByOrderCode: undefined,
+              reservedByName: undefined,
+            }
+          : s
+      );
+      return { ...ev, venueMap: { ...ev.venueMap, spots } };
+    });
+  }
+
+  const purgeAgeMs = 7 * 24 * 3600 * 1000;
+  state.orders = orders
+    .map((o) =>
+      expiredCodes.has(o.orderCode)
         ? {
-            ...s,
-            status: "DISPONIBLE" as const,
-            reservedByOrderCode: undefined,
-            reservedByName: undefined,
+            ...o,
+            status: "RECHAZADA" as const,
+            paymentStatus: o.paymentStatus || "expired",
+            transferReference: o.paymentId
+              ? o.transferReference
+              : "Mercado Pago (vencida sin pago)",
+            expiresAt: undefined,
           }
-        : s
+        : o
+    )
+    .filter(
+      (o) =>
+        !(
+          o.issueType === "MERCADOPAGO_WEB" &&
+          o.status === "RECHAZADA" &&
+          o.paymentStatus === "expired" &&
+          !o.paymentId &&
+          o.createdAt &&
+          now - new Date(o.createdAt).getTime() > purgeAgeMs
+        )
     );
-    return { ...ev, venueMap: { ...ev.venueMap, spots } };
-  });
-  state.orders = orders.filter((o) => !expiredCodes.has(o.orderCode));
 }
 
 /* ------------------------------------------------------------------ */
@@ -491,7 +602,7 @@ export async function fulfillPaidOrder(
   orderId: string,
   payment: MpPayment
 ): Promise<FulfillResult> {
-  return mutateState((state) => {
+  const result = await mutateState((state) => {
     const orders = ((state.orders as OrderItem[]) || []).slice();
     const idx = orders.findIndex((o) => o.id === orderId);
     if (idx < 0) return { order: null, tickets: [], alreadyDone: false };
@@ -590,24 +701,101 @@ export async function fulfillPaidOrder(
     state.tickets = [...newTickets, ...allTickets];
     return { order: approved, tickets: newTickets, alreadyDone: false };
   });
+
+  if (result.order && !result.alreadyDone) {
+    try {
+      const supabase = getAdminSupabase();
+      const ord = result.order;
+      await supabase.from("orders").upsert(
+        {
+          id: ord.id,
+          order_code: ord.orderCode,
+          event_id: ord.eventId,
+          event_title: ord.eventTitle,
+          event_date: ord.eventDateLabel || "",
+          event_venue: ord.eventVenue || "",
+          buyer_name: ord.buyerName,
+          buyer_dni: ord.buyerDni || "",
+          buyer_email: ord.buyerEmail || "",
+          buyer_phone: ord.buyerPhone || "",
+          tier_id: ord.tierId || "",
+          tier_name: ord.tierName || "",
+          unit_price: ord.unitPrice || 0,
+          quantity: ord.quantity || 1,
+          total_amount: ord.totalAmount || 0,
+          transfer_sender: ord.transferSender || ord.buyerName,
+          transfer_reference: ord.transferReference || `MP #${payment.id}`,
+          notes: ord.notes || "",
+          status: ord.status,
+          approved_at: ord.approvedAt || new Date().toISOString(),
+          approved_by_username: ord.approvedByUsername || "mercadopago",
+          approved_by_name: ord.approvedByName || "Mercado Pago (automático)",
+          created_at: ord.createdAt || new Date().toISOString(),
+        },
+        { onConflict: "order_code" }
+      );
+      if (result.tickets.length > 0) {
+        await supabase.from("tickets").upsert(
+          result.tickets.map((t) => ({
+            id: t.id,
+            qr_code: t.qrCode,
+            order_id: t.orderId,
+            order_code: t.orderCode,
+            event_id: t.eventId,
+            event_title: t.eventTitle,
+            event_date: t.eventDateLabel || "",
+            event_venue: t.eventVenue || "",
+            tier_name: t.tierName || "",
+            holder_name: t.holderName,
+            holder_dni: t.holderDni || "",
+            ticket_number: t.ticketNumber,
+            total_in_order: t.totalInOrder,
+            unit_price: t.unitPrice || 0,
+            generated_by_username: t.generatedByUsername || "mercadopago",
+            generated_by_name: t.generatedByName || "Mercado Pago (automático)",
+            status: t.status || "VALIDO",
+            created_at: t.createdAt || new Date().toISOString(),
+          })),
+          { onConflict: "id" }
+        );
+      }
+    } catch (pgErr) {
+      console.error("[MP] Error al respaldar orden/tickets en Postgres:", pgErr);
+    }
+  }
+
+  return result;
 }
 
-/** Marca la orden como rechazada y libera la mesa. */
+/** Registra el rechazo del pago; solo marca RECHAZADA y libera la mesa si la reserva ya venció. */
 export async function failPaidOrder(orderId: string, payment: MpPayment) {
   await mutateState((state) => {
     const orders = (state.orders as OrderItem[]) || [];
     const target = orders.find((o) => o.id === orderId);
     if (!target || target.status !== "PENDIENTE") return;
+
+    const isExpired = Boolean(
+      target.expiresAt && new Date(target.expiresAt).getTime() <= Date.now()
+    );
+    const detail = payment.status_detail || payment.status;
+    const paymentMethod = payment.payment_type_id || payment.payment_method_id;
+
     state.orders = orders.map((o) =>
       o.id === orderId
         ? {
             ...o,
-            status: "RECHAZADA" as const,
+            status: isExpired ? ("RECHAZADA" as const) : o.status,
             paymentId: String(payment.id),
             paymentStatus: payment.status,
+            paymentMethod: paymentMethod || o.paymentMethod,
+            transferReference: `MP #${payment.id} (${detail})`,
+            ...(isExpired ? { expiresAt: undefined } : {}),
           }
         : o
     );
+
+    if (!isExpired) return true;
+
     const events = (state.events as EventItem[]) || [];
     state.events = events.map((ev) =>
       ev.venueMap?.spots?.some((s) => s.reservedByOrderCode === target.orderCode)
@@ -629,6 +817,7 @@ export async function failPaidOrder(orderId: string, payment: MpPayment) {
           }
         : ev
     );
+    return true;
   });
 }
 

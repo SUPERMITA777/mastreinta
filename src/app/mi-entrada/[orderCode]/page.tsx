@@ -10,6 +10,7 @@ import {
   Loader2,
   MessageCircle,
   X,
+  XCircle,
 } from "lucide-react";
 import {
   formatARS,
@@ -178,6 +179,16 @@ export default function MyOrderTicketsPage() {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Autorizada · {tickets.length} Tickets QR Emitidos
                   </span>
+                ) : order.status === "RECHAZADA" ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-sm bg-red-950/90 border border-red-500/40 text-red-300 text-xs font-medium">
+                    <XCircle className="w-3.5 h-3.5" />
+                    Pago rechazado o vencido
+                  </span>
+                ) : order.issueType === "MERCADOPAGO_WEB" ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-sm bg-[#353535] text-sky-300 text-xs font-medium">
+                    <Clock className="w-3.5 h-3.5" />
+                    Pendiente de acreditación de Mercado Pago
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-sm bg-[#353535] text-[#ffb5d7] text-xs font-medium">
                     <Clock className="w-3.5 h-3.5" />
@@ -207,11 +218,46 @@ export default function MyOrderTicketsPage() {
               className="px-5 py-3 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-sm flex items-center justify-center gap-2 shrink-0 hover:brightness-90"
             >
               <MessageCircle className="w-4 h-4" />
-              Enviar Comprobante al WhatsApp del Organizador
+              {order.status === "PENDIENTE" && order.issueType !== "MERCADOPAGO_WEB"
+                ? "Enviar Comprobante al WhatsApp del Organizador"
+                : "Consultar por WhatsApp"}
             </a>
           </div>
 
-          {order.status === "PENDIENTE" && (
+          {order.status === "RECHAZADA" && (
+            <div className="p-5 rounded-md bg-red-950/30 border border-red-500/30 space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-red-300">
+                  Esta reserva no se llegó a acreditar o fue rechazada
+                </p>
+                <p className="text-xs text-[#b0b0b0]">
+                  No se emitieron entradas para esta orden. Si querés intentar de nuevo, podés volver al evento y generar una nueva compra.
+                </p>
+              </div>
+              <Link
+                href={order.eventSlug ? `/eventos/${order.eventSlug}` : "/"}
+                className="inline-block px-4 py-2 rounded-[3px] bg-soft-pink text-[#1c1c1c] font-medium text-xs"
+              >
+                {order.eventSlug ? "Volver al Evento" : "Volver a Eventos"}
+              </Link>
+            </div>
+          )}
+
+          {order.status === "PENDIENTE" && order.issueType === "MERCADOPAGO_WEB" && (
+            <div className="p-5 rounded-md bg-[#121212] border border-[#353535]">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-sky-300">
+                  Esperando confirmación automática de Mercado Pago
+                </p>
+                <p className="text-xs text-[#8a8a8a]">
+                  Tu orden está registrada. En cuanto Mercado Pago confirme la acreditación del pago, tus{" "}
+                  {totalQRs} código{totalQRs > 1 ? "s" : ""} QR y código de 4 dígitos se activarán automáticamente acá y los recibirás por email.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {order.status === "PENDIENTE" && order.issueType !== "MERCADOPAGO_WEB" && (
             <div className="p-5 rounded-md bg-[#121212] border border-[#353535]">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-[#ffb5d7]">

@@ -475,11 +475,14 @@ function notifyStoreUpdate() {
 
 let cloudSyncInitialized = false;
 let isApplyingCloudState = false;
-let isSavingToCloud = false;
+let savingToCloudCount = 0;
+let cloudWriteEpoch = 0;
+let cloudPushQueue: Promise<unknown> = Promise.resolve();
 
 export interface CloudStoreResult {
   ok: boolean;
   error?: string;
+  events?: EventItem[];
 }
 
 export async function pushToCloudStore(
@@ -488,58 +491,77 @@ export async function pushToCloudStore(
   if (typeof window === "undefined" || isApplyingCloudState) {
     return { ok: false, error: "Sincronización no disponible" };
   }
-  isSavingToCloud = true;
-  try {
-    const payload = partial || {
-      events: getEvents(),
-      orders: getOrders(),
-      tickets: getTickets(),
-      inquiries: getInquiries(),
-      settings: getBankSettings(),
-      adminUsers: getAdminUsers(),
-      adminRoles: getAdminRoles(),
-    };
-    // La autorización la da la cookie de sesión HttpOnly (se envía sola en el mismo origen)
-    const res = await fetch("/api/cloud-store", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && getCurrentAdminSession()) {
-      // La sesión del servidor venció: cerrar también la sesión visual
-      localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
-      notifyStoreUpdate();
-      isSavingToCloud = false;
-      return { ok: false, error: data.error || "Sesión expirada. Por favor iniciá sesión nuevamente." };
-    }
-    if (res.ok) {
-      if (Array.isArray(data.events)) {
-        try {
-          localStorage.setItem(
-            STORAGE_KEYS.EVENTS,
-            JSON.stringify(data.events)
-          );
-        } catch {
-          // ignore quota error
-        }
+  savingToCloudCount += 1;
+  cloudWriteEpoch += 1;
+
+  const runPush = async (): Promise<CloudStoreResult> => {
+    try {
+      const payload = partial || {
+        events: getEvents(),
+        orders: getOrders(),
+        tickets: getTickets(),
+        inquiries: getInquiries(),
+        settings: getBankSettings(),
+        adminUsers: getAdminUsers(),
+        adminRoles: getAdminRoles(),
+      };
+      // La autorización la da la cookie de sesión HttpOnly (se envía sola en el mismo origen)
+      const res = await fetch("/api/cloud-store", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && getCurrentAdminSession()) {
+        // La sesión del servidor venció: cerrar también la sesión visual
+        localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+        notifyStoreUpdate();
+        return {
+          ok: false,
+          error:
+            data.error ||
+            "Sesión expirada. Por favor iniciá sesión nuevamente.",
+        };
       }
-      isSavingToCloud = false;
-      return { ok: true };
+      if (res.ok) {
+        if ((!partial || "events" in partial) && Array.isArray(data.events)) {
+          try {
+            localStorage.setItem(
+              STORAGE_KEYS.EVENTS,
+              JSON.stringify(data.events)
+            );
+            notifyStoreUpdate();
+          } catch {
+            // ignore quota error
+          }
+        }
+        return {
+          ok: true,
+          events: Array.isArray(data.events) ? data.events : undefined,
+        };
+      }
+      return {
+        ok: false,
+        error: data.error || `Error del servidor (${res.status})`,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error de red";
+      return { ok: false, error: msg };
+    } finally {
+      savingToCloudCount = Math.max(0, savingToCloudCount - 1);
     }
-    isSavingToCloud = false;
-    return { ok: false, error: data.error || `Error del servidor (${res.status})` };
-  } catch (err: unknown) {
-    isSavingToCloud = false;
-    const msg = err instanceof Error ? err.message : "Error de red";
-    return { ok: false, error: msg };
-  }
+  };
+
+  const queued = cloudPushQueue.then(runPush, runPush);
+  cloudPushQueue = queued.catch(() => {});
+  return queued;
 }
 
 const DEMO_ORDER_IDS = new Set(["ord-demo-1", "ord-demo-2", "ord-demo-3"]);
 const DEMO_ORDER_CODES = new Set(["MAS30-8492", "MAS30-9104", "MAS30-9255"]);
 const DEMO_TICKET_IDS = new Set(["tkt-demo-1", "tkt-demo-2"]);
+const OBSOLETE_SHORT_CODES = new Set(["HESX", "PWQS", "82EM", "NMK6", "QDHH"]);
 
 function filterOutDemoOrders(orders: OrderItem[]): OrderItem[] {
   if (!Array.isArray(orders)) return [];
@@ -555,20 +577,23 @@ function filterOutDemoTickets(tickets: TicketQR[]): TicketQR[] {
       t &&
       !DEMO_TICKET_IDS.has(t.id) &&
       !DEMO_ORDER_IDS.has(t.orderId) &&
-      !DEMO_ORDER_CODES.has(t.orderCode)
+      !DEMO_ORDER_CODES.has(t.orderCode) &&
+      !OBSOLETE_SHORT_CODES.has((t.shortCode || "").trim().toUpperCase())
   );
 }
 
 export async function syncFromCloudStore(): Promise<void> {
-  if (typeof window === "undefined" || isSavingToCloud) return;
+  if (typeof window === "undefined" || savingToCloudCount > 0) return;
+  const startEpoch = cloudWriteEpoch;
   try {
     const session = getCurrentAdminSession();
     const res = await fetch(`/api/cloud-store?t=${Date.now()}`, {
       cache: "no-store",
       credentials: "same-origin",
     });
-    if (!res.ok || isSavingToCloud) return;
+    if (!res.ok || savingToCloudCount > 0 || cloudWriteEpoch !== startEpoch) return;
     const data = await res.json();
+    if (savingToCloudCount > 0 || cloudWriteEpoch !== startEpoch) return;
 
     // Hay sesión visual pero el servidor ya no la reconoce (venció o fue revocada)
     if (session && !data.isAdmin) {
@@ -754,7 +779,8 @@ export function saveEvents(events: EventItem[]) {
 
 export async function upsertEvent(
   event: EventItem,
-  creatorUsername?: string
+  creatorUsername?: string,
+  settingsToSync?: BankSettings
 ): Promise<EventMutationResult> {
   const current = getEvents();
   const existing = current.find((e) => e.id === event.id);
@@ -775,6 +801,18 @@ export async function upsertEvent(
     // ignore local quota
   }
 
+  if (settingsToSync && typeof window !== "undefined") {
+    try {
+      localStorage.setItem(
+        STORAGE_KEYS.SETTINGS,
+        JSON.stringify(settingsToSync)
+      );
+    } catch {
+      // ignore local quota
+    }
+  }
+
+  let updatedUsersToSync: AdminUser[] | undefined;
   // Si lo creó un usuario no-superadmin, se asegura de asignárselo automáticamente
   if (creatorUsername) {
     const users = getAdminUsers();
@@ -790,18 +828,50 @@ export async function upsertEvent(
             ? { ...u, assignedEventIds: Array.from(assigned) }
             : u
         );
-        await saveAdminUsers(updatedUsers);
+        updatedUsersToSync = normalizeAdminUsersList(updatedUsers);
+        try {
+          localStorage.setItem(
+            STORAGE_KEYS.ADMIN_USERS,
+            JSON.stringify(updatedUsersToSync)
+          );
+        } catch {
+          // ignore
+        }
       }
     }
   }
 
   notifyStoreUpdate();
-  const cloudRes = await pushToCloudStore({ events: updated });
+  const payload: Record<string, unknown> = { events: updated };
+  if (settingsToSync) payload.settings = settingsToSync;
+  if (updatedUsersToSync) payload.adminUsers = updatedUsersToSync;
 
-  return Object.assign([...updated], {
+  const cloudRes = await pushToCloudStore(payload);
+  const finalEvents = cloudRes.events || updated;
+
+  return Object.assign([...finalEvents], {
     ok: cloudRes.ok,
     error: cloudRes.error,
-    events: updated,
+    events: finalEvents,
+  });
+}
+
+export async function updateEventFlyer(
+  eventId: string,
+  flyerUrl: string
+): Promise<EventMutationResult> {
+  const current = getEvents();
+  const target = current.find((e) => e.id === eventId);
+  if (!target) {
+    return Object.assign([...current], {
+      ok: false,
+      error: "Evento no encontrado",
+      events: current,
+    });
+  }
+  return upsertEvent({
+    ...target,
+    flyerUrl,
   });
 }
 
@@ -1053,13 +1123,16 @@ export async function approveOrderAndGenerateQRs(
     issueType:
       issueTypeOverride ||
       target.issueType ||
-      (target.totalAmount === 0 ? "CORTESIA_ADMIN" : "TRANSFERENCIA_WEB"),
+      (target.totalAmount === 0 || target.transferReference === "FREE-PASS"
+        ? "CORTESIA_ADMIN"
+        : target.transferReference === "ADMIN-DIRECT"
+          ? "VENTA_MANUAL_ADMIN"
+          : "TRANSFERENCIA_WEB"),
   };
 
   const updatedOrders = orders.map((o) =>
     o.id === target.id ? approvedOrder : o
   );
-  saveOrders(updatedOrders);
 
   const existingTickets = getTickets();
   const alreadyForOrder = existingTickets.filter(
@@ -1067,6 +1140,7 @@ export async function approveOrderAndGenerateQRs(
   );
 
   if (alreadyForOrder.length > 0) {
+    saveOrders(updatedOrders);
     return { order: approvedOrder, generatedTickets: alreadyForOrder };
   }
 
@@ -1162,10 +1236,26 @@ export async function approveOrderAndGenerateQRs(
       venueMap: ev.venueMap && updatedSpots ? { ...ev.venueMap, spots: updatedSpots } : ev.venueMap,
     };
   });
-  saveEvents(updatedEvents);
 
   const allTickets = [...newTickets, ...existingTickets];
-  saveTickets(allTickets);
+  const cleanedOrders = filterOutDemoOrders(updatedOrders);
+  const cleanedTickets = filterOutDemoTickets(allTickets);
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(cleanedOrders));
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updatedEvents));
+      localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(cleanedTickets));
+    } catch {
+      // ignore localStorage quota
+    }
+    notifyStoreUpdate();
+    await pushToCloudStore({
+      orders: cleanedOrders,
+      events: updatedEvents,
+      tickets: cleanedTickets,
+    });
+  }
 
   return { order: approvedOrder, generatedTickets: newTickets };
 }

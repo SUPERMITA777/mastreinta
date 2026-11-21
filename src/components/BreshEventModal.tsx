@@ -207,12 +207,12 @@ export default function BreshEventModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId: event.id,
-          tierId: selectedTier?.id,
+          tierId: selectedSpot ? undefined : (selectedTier?.id || event.ticketTiers[0]?.id),
           spotId: selectedSpot?.id,
           quantity: selectedSpot ? 1 : quantity,
-          buyerName,
-          buyerEmail,
-          buyerPhone,
+          buyerName: buyerName.trim(),
+          buyerEmail: buyerEmail.trim().toLowerCase(),
+          buyerPhone: buyerPhone.trim(),
           attendees,
         }),
       });
@@ -704,9 +704,6 @@ export default function BreshEventModal({
                             ? "Redirigiendo a Mercado Pago..."
                             : `Pagar ${formatARS(mpTotal)} con Mercado Pago`}
                         </button>
-                        {payError && (
-                          <p className="text-xs text-red-300">{payError}</p>
-                        )}
                         {mpFee > 0 ? (
                           <p className="text-[11px] text-white/60 text-center">
                             Incluye el valor de las entradas más el service charge.

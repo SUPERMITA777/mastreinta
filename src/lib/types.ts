@@ -213,6 +213,7 @@ export interface PaymentAccountPublic {
   mpUserId: string;
   email?: string;
   connectedAt: string;
+  supportsSplit?: boolean;
 }
 
 export interface TicketQR {

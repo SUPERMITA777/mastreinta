@@ -691,6 +691,10 @@ export async function POST(req: Request) {
         }
       }
       if (Array.isArray(incoming.tickets)) {
+        const obsoleteCodes = new Set(["HESX", "PWQS", "82EM", "NMK6", "QDHH"]);
+        incoming.tickets = (incoming.tickets as Array<{ shortCode?: string }>).filter(
+          (t) => !obsoleteCodes.has(String(t?.shortCode || "").trim().toUpperCase())
+        );
         const haveIds = new Set(
           (incoming.tickets as Array<{ id?: string }>).map((t) => t?.id)
         );
